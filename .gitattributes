@@ -1,0 +1,23 @@
+# Normalize line endings: LF in the repository and in every working tree,
+# except for Windows-native scripts, which need CRLF.
+#
+# Keeps `git add` quiet — with core.autocrlf enabled, every commit otherwise
+# prints "LF will be replaced by CRLF" warnings — and guarantees Dockerfiles
+# and shell scripts stay LF so Linux builds never see CRLF.
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.ttf binary
+*.otf binary
