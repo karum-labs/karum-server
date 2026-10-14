@@ -1,4 +1,4 @@
-module github.com/kaarum/karum-server
+module github.com/karum-labs/karum-server
 
 go 1.26.0
 

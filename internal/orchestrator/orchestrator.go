@@ -16,7 +16,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kaarum/karum-server/internal/config"
+	"github.com/karum-labs/karum-server/internal/config"
 )
 
 // Stage names a step in the job lifecycle. They are emitted in trace events so

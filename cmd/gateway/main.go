@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kaarum/karum-server/internal/config"
-	"github.com/kaarum/karum-server/internal/httpapi"
+	"github.com/karum-labs/karum-server/internal/config"
+	"github.com/karum-labs/karum-server/internal/httpapi"
 )
 
 // healthcheckURL is the endpoint the -healthcheck mode probes.

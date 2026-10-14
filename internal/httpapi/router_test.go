@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/kaarum/karum-server/internal/config"
+	"github.com/karum-labs/karum-server/internal/config"
 )
 
 func TestHealthReturnsOK(t *testing.T) {

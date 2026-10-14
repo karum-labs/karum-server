@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kaarum/karum-server/internal/config"
+	"github.com/karum-labs/karum-server/internal/config"
 )
 
 // HealthResponse is the payload returned by GET /health.

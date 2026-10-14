@@ -1,20 +1,20 @@
 # karum-server
 
-The **Go + Gin API gateway** for [Karum](https://github.com/kaarum/karum-infra#readme) — the tenant-mix leasing agent. This is the single public entrypoint the Flutter client talks to. It geocodes vacancies, orchestrates `service-taste` and `service-ai` over gRPC, and streams job progress over SSE.
+The **Go + Gin API gateway** for [Karum](https://github.com/karum-labs/karum-infra#readme) — the tenant-mix leasing agent. This is the single public entrypoint the Flutter client talks to. It geocodes vacancies, orchestrates `service-taste` and `service-ai` over gRPC, and streams job progress over SSE.
 
 Part of the five-repo Karum layout:
 
 | Repo | Role |
 | --- | --- |
-| [`karum-infra`](https://github.com/kaarum/karum-infra) | Shared protos, Docker Compose, Cloud Run manifests |
-| [`karum-client`](https://github.com/kaarum/karum-client) | Flutter UI (web / desktop) |
+| [`karum-infra`](https://github.com/karum-labs/karum-infra) | Shared protos, Docker Compose, Cloud Run manifests |
+| [`karum-client`](https://github.com/karum-labs/karum-client) | Flutter UI (web / desktop) |
 | **`karum-server`** (this repo) | Go + Gin API gateway |
-| [`karum-service-taste`](https://github.com/kaarum/karum-service-taste) | Qloo integration, caching, taste scoring |
-| [`karum-service-ai`](https://github.com/kaarum/karum-service-ai) | Vertex AI, search grounding, pitch drafting |
+| [`karum-service-taste`](https://github.com/karum-labs/karum-service-taste) | Qloo integration, caching, taste scoring |
+| [`karum-service-ai`](https://github.com/karum-labs/karum-service-ai) | Vertex AI, search grounding, pitch drafting |
 
 ## Run path
 
-Requires **Go 1.26+** (see the version pin in [`karum-infra`](https://github.com/kaarum/karum-infra)).
+Requires **Go 1.26+** (see the version pin in [`karum-infra`](https://github.com/karum-labs/karum-infra)).
 
 ```bash
 # Run the gateway with default (fixture) settings.
@@ -43,7 +43,7 @@ curl http://localhost:8080/health
 
 ### Configuration
 
-Every setting is read from the environment. All of them have working defaults, so the gateway boots with no `.env` file. The full list — including which process reads each variable — lives in [`karum-infra/.env.example`](https://github.com/kaarum/karum-infra/blob/main/.env.example).
+Every setting is read from the environment. All of them have working defaults, so the gateway boots with no `.env` file. The full list — including which process reads each variable — lives in [`karum-infra/.env.example`](https://github.com/karum-labs/karum-infra/blob/main/.env.example).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
