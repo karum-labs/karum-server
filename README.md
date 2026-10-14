@@ -89,6 +89,10 @@ internal/geocode/     vacancy address → point (stub)
 internal/orchestrator/ job pipeline (stub)
 ```
 
+## Ownership
+
+Karum is a two-person build (record: [`DECISIONS.md`](https://github.com/karum-labs/karum-infra/blob/main/DECISIONS.md)). **Side A** owns taste, score, agent, and eval; **side B** owns UI, map, drafts, deploy, and Devpost. This repo is **side B** — gateway, orchestration, persistence, and SSE. Its job states and error codes must stay in step with the shared protos in [`karum-infra`](https://github.com/karum-labs/karum-infra), which side A owns.
+
 ## Licence
 
 MIT. See [`LICENSE`](LICENSE).
