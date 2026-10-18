@@ -14,7 +14,7 @@ Part of the five-repo Karum layout:
 
 ## Run path
 
-Requires **Go 1.26+** (see the version pin in [`karum-infra`](https://github.com/karum-labs/karum-infra)).
+Requires **Go 1.27.2** (see the version pin in [`karum-infra`](https://github.com/karum-labs/karum-infra)).
 
 ```bash
 # Run the gateway with default (fixture) settings.
@@ -43,7 +43,7 @@ curl http://localhost:8080/health
 
 ### Configuration
 
-Every setting is read from the environment. All of them have working defaults, so the gateway boots with no `.env` file. The full list — including which process reads each variable — lives in [`karum-infra/.env.example`](https://github.com/karum-labs/karum-infra/blob/main/.env.example).
+Every setting is read from the environment. `POSTGRES_DSN` is required. The other settings have working defaults. The full list — including which process reads each variable — lives in [`karum-infra/.env.example`](https://github.com/karum-labs/karum-infra/blob/main/.env.example).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ Every setting is read from the environment. All of them have working defaults, s
 | `TASTE_ADDR` | `localhost:8081` | gRPC address of `service-taste` |
 | `AI_ADDR` | `localhost:8082` | gRPC address of `service-ai` |
 | `REDIS_ADDR` | `localhost:6379` | Redis cache address |
-| `POSTGRES_DSN` | _(empty)_ | Postgres connection string |
+| `POSTGRES_DSN` | _(required)_ | Database URI. The gateway refuses to start without it |
 
 ### Health
 

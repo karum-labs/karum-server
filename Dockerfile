@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage: compile the gateway binary with module caching.
-FROM golang:1.26-alpine AS build
+FROM golang:1.27.2-alpine AS build
 
 WORKDIR /src
 

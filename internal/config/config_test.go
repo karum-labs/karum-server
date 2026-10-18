@@ -6,6 +6,8 @@ import (
 )
 
 func TestFromEnvUsesDefaults(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
+
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatalf("FromEnv() error = %v", err)
@@ -31,7 +33,16 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestFromEnvRejectsMissingDSN(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "")
+
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("FromEnv() error = nil, want error for missing POSTGRES_DSN")
+	}
+}
+
 func TestFromEnvRejectsInvalidMode(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
 	t.Setenv("GATEWAY_MODE", "bogus")
 
 	if _, err := FromEnv(); err == nil {
@@ -40,6 +51,7 @@ func TestFromEnvRejectsInvalidMode(t *testing.T) {
 }
 
 func TestFromEnvRejectsInvalidPort(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
 	t.Setenv("GATEWAY_PORT", "0")
 
 	if _, err := FromEnv(); err == nil {
@@ -48,6 +60,7 @@ func TestFromEnvRejectsInvalidPort(t *testing.T) {
 }
 
 func TestFromEnvReadsOverrides(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
 	t.Setenv("GATEWAY_PORT", "9090")
 	t.Setenv("GATEWAY_MODE", "live")
 	t.Setenv("TASTE_ADDR", "taste:9091")

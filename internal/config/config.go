@@ -54,8 +54,8 @@ type Config struct {
 	ShutdownTimeout time.Duration
 }
 
-// FromEnv builds a Config from environment variables, applying defaults for
-// anything unset so the gateway boots with no .env file present.
+// FromEnv builds a Config from environment variables. POSTGRES_DSN is required.
+// Other settings fall back to local defaults when unset.
 func FromEnv() (*Config, error) {
 	cfg := &Config{
 		Port:            getenvInt("GATEWAY_PORT", 8080),
@@ -78,6 +78,10 @@ func FromEnv() (*Config, error) {
 
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return nil, fmt.Errorf("invalid GATEWAY_PORT %d: must be between 1 and 65535", cfg.Port)
+	}
+
+	if cfg.PostgresDSN == "" {
+		return nil, fmt.Errorf("POSTGRES_DSN is required")
 	}
 
 	return cfg, nil
