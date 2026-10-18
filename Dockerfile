@@ -24,7 +24,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/gateway /gateway
 
-# Cloud Run injects the port; default to 8080 to match local Compose.
+# Cloud Run injects the port; default to 8080 to match the laptop and the demo VM.
 ENV GATEWAY_PORT=8080
 EXPOSE 8080
 
