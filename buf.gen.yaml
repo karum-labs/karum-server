@@ -1,0 +1,28 @@
+# Generates the gateway's Go stubs and the Python stubs each service
+# implements. The proto source stays in karum-infra; these copies are committed
+# so `go test` and pytest do not need buf.
+version: v2
+inputs:
+  - directory: ../karum-infra/proto
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: internal/pb
+    opt:
+      - paths=source_relative
+  - remote: buf.build/grpc/go:v1.6.2
+    out: internal/pb
+    opt:
+      - paths=source_relative
+  - remote: buf.build/protocolbuffers/python:v36.2
+    out: ../karum-service-taste/src
+  - remote: buf.build/grpc/python:v1.84.0
+    out: ../karum-service-taste/src
+  - remote: buf.build/protocolbuffers/python:v36.2
+    out: ../karum-service-ai/src
+  - remote: buf.build/grpc/python:v1.84.0
+    out: ../karum-service-ai/src
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/karum-labs/karum-server/internal/pb

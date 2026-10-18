@@ -7,6 +7,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -29,52 +30,58 @@ type HealthResponse struct {
 	UptimeSeconds int64 `json:"uptime_seconds"`
 	// Time is when this health payload was generated.
 	Time time.Time `json:"time"`
+	// Dependencies reports gateway, taste, AI, Redis, Postgres, and Qloo mode.
+	Dependencies HealthDependencies `json:"dependencies"`
 }
 
-// NewRouter builds the Gin engine with all routes registered.
+// HealthDependencies is the per-dependency mode block on GET /health.
+type HealthDependencies struct {
+	Gateway  string `json:"gateway"`
+	Taste    string `json:"taste"`
+	AI       string `json:"ai"`
+	Redis    string `json:"redis"`
+	Postgres string `json:"postgres"`
+	QlooMode string `json:"qloo_mode"`
+}
+
+// NewRouter builds the Gin engine with health and the API index. Scout
+// routes answer 503 until NewRouterWithDeps wires a pipeline.
 func NewRouter(cfg *config.Config) *gin.Engine {
-	// Release mode keeps production logs free of debug noise. Set GIN_MODE=debug
-	// locally to get the verbose request log.
+	return NewRouterWithDeps(cfg, Dependencies{})
+}
+
+// NewRouterWithDeps builds the engine with the scout pipeline attached.
+func NewRouterWithDeps(cfg *config.Config, deps Dependencies) *gin.Engine {
 	if gin.Mode() == gin.ReleaseMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
-
 	r := gin.New()
 	r.Use(gin.Recovery())
-
-	registerRoutes(r, cfg)
-
+	registerRoutes(r, newHandler(cfg, deps))
 	return r
 }
 
 // registerRoutes adds every route to the engine.
-func registerRoutes(r *gin.Engine, cfg *config.Config) {
+func registerRoutes(r *gin.Engine, h *Handler) {
 	started := time.Now()
 
-	// GET /health reports gateway liveness and the operational mode. It is the
-	// single probe Compose, Cloud Run, and the uptime check all point at.
+	// GET /health reports this process plus taste, AI, Redis, Postgres, and
+	// the Qloo mode. Process liveness stays "ok" so a dependency blip does not
+	// fail the Compose probe; the dependency block carries the detail.
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, HealthResponse{
 			Service:       "gateway",
 			Status:        "ok",
-			Mode:          cfg.Mode,
-			Version:       cfg.Version,
+			Mode:          h.cfg.Mode,
+			Version:       h.cfg.Version,
 			UptimeSeconds: int64(time.Since(started).Seconds()),
 			Time:          time.Now().UTC(),
+			Dependencies:  h.dependencies(c.Request.Context()),
 		})
 	})
 
-	// API v1 group. The analysis/job endpoints are added in a later pass; the
-	// group exists now so the URL shape is stable from the first commit.
 	v1 := r.Group("/api/v1")
 	{
-		// TODO(analysis): POST /analyses creates a job from address, neighbour
-		// text, and constraints and returns a job id.
-		// TODO(analysis): GET  /analyses/:id returns state + confirmation payload.
-		// TODO(analysis): POST /analyses/:id/confirm resumes with chosen entities.
-		// TODO(analysis): GET  /analyses/:id/result returns the shortlist.
-		// TODO(analysis): POST /analyses/:id/drafts/{memo,outreach,listing}.
-		// TODO(analysis): GET  /events is the SSE trace stream keyed by cursor.
 		v1.GET("/", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"service": "gateway",
@@ -82,9 +89,16 @@ func registerRoutes(r *gin.Engine, cfg *config.Config) {
 				"status":  "ok",
 			})
 		})
+		v1.POST("/scout", h.postScout)
+		v1.GET("/scout/:id", h.getScout)
+		v1.GET("/scout/:id/events", h.getEvents)
+		v1.POST("/scout/:id/abort", h.postAbort)
+		v1.POST("/scout/:id/drafts/run-sheet", h.postRunSheet)
+		v1.POST("/scout/:id/drafts/site-brief", h.postSiteBrief)
+		v1.POST("/scout/:id/drafts/doors/:doorID", h.postDoorPitch)
+		v1.GET("/campaigns/:id", h.getCampaign)
 	}
 
-	// Catch-all 404 so unknown paths return JSON rather than Gin's default HTML.
 	r.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "not_found",
@@ -92,4 +106,36 @@ func registerRoutes(r *gin.Engine, cfg *config.Config) {
 			"path":    c.Request.URL.Path,
 		})
 	})
+}
+
+func (h *Handler) dependencies(ctx context.Context) HealthDependencies {
+	return HealthDependencies{
+		Gateway:  "ok",
+		Taste:    probe(ctx, h.probes.Taste),
+		AI:       probe(ctx, h.probes.AI),
+		Redis:    probe(ctx, h.probes.Redis),
+		Postgres: probe(ctx, h.probes.Postgres),
+		QlooMode: qlooMode(h),
+	}
+}
+
+func probe(ctx context.Context, fn func(context.Context) string) string {
+	if fn == nil {
+		return "not_configured"
+	}
+	status := fn(ctx)
+	if status == "" {
+		return "down"
+	}
+	return status
+}
+
+func qlooMode(h *Handler) string {
+	if h.probes.QlooMode != nil {
+		return h.probes.QlooMode()
+	}
+	if h.cfg == nil {
+		return "not_configured"
+	}
+	return string(h.cfg.Mode)
 }

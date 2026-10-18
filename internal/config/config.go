@@ -36,10 +36,14 @@ type Config struct {
 	// Version is the build version stamped into binary responses.
 	Version string
 
-	// TasteAddr is the gRPC address of service-taste.
+	// TasteAddr is the HTTP address of service-taste, used for /health.
 	TasteAddr string
-	// AIAddr is the gRPC address of service-ai.
+	// AIAddr is the HTTP address of service-ai, used for /health.
 	AIAddr string
+	// TasteGRPC is the gRPC address of service-taste.
+	TasteGRPC string
+	// AIGRPC is the gRPC address of service-ai.
+	AIGRPC string
 
 	// RedisAddr is the Redis connection address used for caching.
 	RedisAddr string
@@ -48,10 +52,27 @@ type Config struct {
 
 	// ReadTimeout bounds how long reading any request may take.
 	ReadTimeout time.Duration
-	// WriteTimeout bounds how long writing any response may take.
+	// WriteTimeout bounds how long writing any response may take. Zero keeps
+	// SSE streams open; per-RPC deadlines bound the upstream calls instead.
 	WriteTimeout time.Duration
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout time.Duration
+
+	// PlacesAPIKey enriches doors. Empty leaves enrichment unknown.
+	PlacesAPIKey string
+	// RoutesAPIKey orders the field route. Empty skips routing.
+	RoutesAPIKey string
+	// GeocodeAPIKey resolves a city. Empty falls back to PlacesAPIKey.
+	GeocodeAPIKey string
+
+	// TasteTimeout bounds one taste RPC.
+	TasteTimeout time.Duration
+	// AITimeout bounds one AI RPC.
+	AITimeout time.Duration
+	// PlacesTimeout bounds one Places lookup batch.
+	PlacesTimeout time.Duration
+	// RoutesTimeout bounds one Routes call.
+	RoutesTimeout time.Duration
 }
 
 // FromEnv builds a Config from environment variables. POSTGRES_DSN is required.
@@ -63,11 +84,20 @@ func FromEnv() (*Config, error) {
 		Version:         getenv("GATEWAY_VERSION", "dev"),
 		TasteAddr:       getenv("TASTE_ADDR", "localhost:8081"),
 		AIAddr:          getenv("AI_ADDR", "localhost:8082"),
+		TasteGRPC:       getenv("TASTE_GRPC_ADDR", "localhost:9091"),
+		AIGRPC:          getenv("AI_GRPC_ADDR", "localhost:9092"),
 		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
 		PostgresDSN:     os.Getenv("POSTGRES_DSN"),
 		ReadTimeout:     getenvDuration("GATEWAY_READ_TIMEOUT", 15*time.Second),
-		WriteTimeout:    getenvDuration("GATEWAY_WRITE_TIMEOUT", 30*time.Second),
+		WriteTimeout:    getenvDuration("GATEWAY_WRITE_TIMEOUT", 0),
 		ShutdownTimeout: getenvDuration("GATEWAY_SHUTDOWN_TIMEOUT", 10*time.Second),
+		PlacesAPIKey:    os.Getenv("GOOGLE_PLACES_API_KEY"),
+		RoutesAPIKey:    os.Getenv("GOOGLE_ROUTES_API_KEY"),
+		GeocodeAPIKey:   firstNonEmpty(os.Getenv("GOOGLE_GEOCODING_API_KEY"), os.Getenv("GOOGLE_PLACES_API_KEY")),
+		TasteTimeout:    getenvDuration("GATEWAY_TASTE_TIMEOUT", 8*time.Second),
+		AITimeout:       getenvDuration("GATEWAY_AI_TIMEOUT", 30*time.Second),
+		PlacesTimeout:   getenvDuration("GATEWAY_PLACES_TIMEOUT", 5*time.Second),
+		RoutesTimeout:   getenvDuration("GATEWAY_ROUTES_TIMEOUT", 5*time.Second),
 	}
 
 	switch cfg.Mode {
@@ -90,6 +120,15 @@ func FromEnv() (*Config, error) {
 // Addr returns the listen address for the HTTP server.
 func (c *Config) Addr() string {
 	return ":" + strconv.Itoa(c.Port)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // getenv returns the value of key, or fallback when unset or empty.

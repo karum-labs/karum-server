@@ -42,4 +42,18 @@ const (
 	StageDraft Stage = "draft"
 	// StageRegenerate calls only the draft RPC for one door.
 	StageRegenerate Stage = "regenerate"
+	// StageSeed resolves a raw brand query. Confirmed seeds skip it.
+	StageSeed Stage = "seed_resolution"
+	// StageHeatmap fetches the flagship density layer.
+	StageHeatmap Stage = "heatmap"
+	// StagePlaces enriches the working set.
+	StagePlaces Stage = "places"
+	// StageCompare runs the conquest comparison for an incumbent door.
+	StageCompare Stage = "compare"
+	// StageScore assembles S_door and applies the saturation rule.
+	StageScore Stage = "scoring"
+	// StageRoute orders the qualified doors.
+	StageRoute Stage = "route"
+	// StagePersist freezes the evidence snapshot.
+	StagePersist Stage = "persist"
 )

@@ -1,6 +1,9 @@
 package orchestrator
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Mode is the campaign mode, matching karum.agent.v1.CampaignMode.
 type Mode string
@@ -52,14 +55,26 @@ type Door struct {
 	DemographicAlignment *SubScore
 	SharedTags           []Tag
 	EvidenceIDs          []string
+	// Composite is S_door, assembled by the gateway. Value is 0–1 and
+	// RawValue is the 0–100 display number.
+	Composite *SubScore
+	// Enrichment is the Places read. Unknown stays true when Places was
+	// skipped or failed; the door remains on the board.
+	Enrichment *Enrichment
+	// Compare is the conquest chart, set only after an incumbent is found.
+	Compare     *CompareChart
+	Lat         float64
+	Lng         float64
+	OutsideCity bool
 }
 
 // SkipItem is one candidate below the returned shortlist floor.
 type SkipItem struct {
-	Entity      SeedEntity
-	Reason      string
-	RawAffinity float64
-	Floor       float64
+	Entity          SeedEntity
+	Reason          string
+	RawAffinity     float64
+	Floor           float64
+	CompetitorCount int
 }
 
 // EvidenceCall is one recorded Qloo call the evidence drawer lists.
@@ -84,12 +99,13 @@ type ScoutRequest struct {
 
 // ScoutResult is the door board plus the skip list and evidence bundle.
 type ScoutResult struct {
-	Doors        []Door
-	Skip         []SkipItem
-	Evidence     []EvidenceCall
-	Warnings     []string
-	ErrorCode    string
-	ErrorMessage string
+	Doors         []Door
+	Skip          []SkipItem
+	Evidence      []EvidenceCall
+	Warnings      []string
+	ErrorCode     string
+	ErrorMessage  string
+	AffinityFloor float64
 }
 
 // AuditTarget is one door sent to the menu audit.
@@ -203,6 +219,8 @@ type Pitch struct {
 
 // TraceEvent is one completed hop the client timeline renders.
 type TraceEvent struct {
+	Sequence  int64
+	Cursor    string
 	Stage     Stage
 	ElapsedMS int64
 	CacheHit  bool
@@ -211,21 +229,132 @@ type TraceEvent struct {
 
 // Run is one scout campaign. A ready or degraded run freezes its evidence.
 type Run struct {
-	ID             string
-	PresetID       string
-	Mode           Mode
-	FreeEntry      bool
-	Brand          BrandContext
-	City           string
-	State          JobState
-	Doors          []Door
-	Skip           []SkipItem
-	Evidence       []EvidenceCall
-	Findings       map[string]AuditFinding
-	Baseline       BaselineResult
-	BaselineStored bool
-	Pitches        map[string]Pitch
-	Warnings       []string
-	Trace          []TraceEvent
-	CreatedAt      time.Time
+	ID               string
+	PresetID         string
+	Mode             Mode
+	FreeEntry        bool
+	Brand            BrandContext
+	City             string
+	Seed             []SeedEntity
+	State            JobState
+	Doors            []Door
+	Skip             []SkipItem
+	Evidence         []EvidenceCall
+	Findings         map[string]AuditFinding
+	Baseline         BaselineResult
+	BaselineStored   bool
+	Pitches          map[string]Pitch
+	Warnings         []string
+	Trace            []TraceEvent
+	CreatedAt        time.Time
+	CampaignID       string
+	Point            Point
+	RadiusMeters     int
+	PointAttribution string
+	FormattedAddress string
+	Heatmap          *HeatmapView
+	Route            *RouteView
+	QlooPayload      json.RawMessage
+	GroundingPayload json.RawMessage
+	Formula          string
+	TraceID          string
+	ErrorCode        string
+	ErrorMessage     string
+	AffinityFloor    float64
+}
+
+// Enrichment is the Places read attached to one door.
+type Enrichment struct {
+	ID          string
+	Address     string
+	Hours       string
+	Website     string
+	OpenStatus  string
+	Lat         float64
+	Lng         float64
+	Closed      bool
+	Unknown     bool
+	Attribution string
+}
+
+// CompareChart is the conquest overlap for one door.
+type CompareChart struct {
+	Available            bool
+	Reason               string
+	Tags                 []Tag
+	MatchEntitiesPresent bool
+}
+
+// HeatmapView is the flagship density layer the map draws.
+type HeatmapView struct {
+	Available  bool
+	Reason     string
+	Corridors  []string
+	Anchors    []SeedEntity
+	CellCount  int
+	Localities int
+}
+
+// RouteView is the field route, or the reason it was not built.
+type RouteView struct {
+	Skipped     bool
+	SkipReason  string
+	Failed      bool
+	Error       string
+	Polyline    string
+	Legs        []RouteLeg
+	StopIDs     []string
+	Attribution string
+}
+
+// RouteLeg is one hop of the field route.
+type RouteLeg struct {
+	FromID         string
+	ToID           string
+	Duration       string
+	Polyline       string
+	DistanceMeters int
+}
+
+// CampaignRecord is the durable campaign header a refresh restores.
+type CampaignRecord struct {
+	ID           string
+	PresetID     string
+	Mode         Mode
+	City         string
+	Point        Point
+	RadiusMeters int
+	BrandName    string
+	Seed         []SeedEntity
+}
+
+// SeedQuery is a raw brand query resolved only when the request has no
+// confirmed entities.
+type SeedQuery struct {
+	BrandQuery string
+	Fallbacks  []string
+	Point      Point
+	City       string
+}
+
+// SeedResolution is the resolver's answer.
+type SeedResolution struct {
+	Entities     []SeedEntity
+	Unresolved   bool
+	ErrorCode    string
+	ErrorMessage string
+}
+
+// HeatmapQuery is the flagship heatmap request.
+type HeatmapQuery struct {
+	Seed         []SeedEntity
+	Point        Point
+	RadiusMeters int
+}
+
+// CompareQuery is one door against the emerging brand.
+type CompareQuery struct {
+	DoorID        string
+	BrandID       string
+	IncumbentName string
 }

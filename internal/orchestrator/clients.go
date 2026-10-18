@@ -17,7 +17,26 @@ const (
 	CodeValidation = "ERROR_CODE_VALIDATION"
 	// CodeEmpty means the call succeeded with no rows.
 	CodeEmpty = "ERROR_CODE_EMPTY"
+	// CodeUnresolved means a seed resolved to nothing.
+	CodeUnresolved = "ERROR_CODE_UNRESOLVED"
+	// CodeRateLimited means an upstream or the gateway refused for rate.
+	CodeRateLimited = "ERROR_CODE_RATE_LIMITED"
 )
+
+// SeedResolver resolves a raw brand query. Confirmed seeds never call it.
+type SeedResolver interface {
+	ResolveBrandSeed(ctx context.Context, req SeedQuery) (SeedResolution, error)
+}
+
+// HeatmapClient fetches the flagship density layer.
+type HeatmapClient interface {
+	GetLocalityHeatmap(ctx context.Context, req HeatmapQuery) (HeatmapView, error)
+}
+
+// CompareClient runs the conquest comparison for one incumbent door.
+type CompareClient interface {
+	CompareAudiences(ctx context.Context, req CompareQuery) (CompareChart, error)
+}
 
 // UpstreamError is the typed failure service clients return. The runner
 // degrades on it; the HTTP layer will map it onto a JSON error in §19.

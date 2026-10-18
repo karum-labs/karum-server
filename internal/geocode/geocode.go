@@ -1,10 +1,9 @@
-// Package geocode resolves a vacancy address to a geographic point.
+// Package geocode resolves a city query to one geographic point.
 //
-// This is a skeleton. The real implementation calls the geocoding provider,
-// returns candidate points when the address is ambiguous rather than guessing,
-// rejects unusable coordinates with a validation error, and caches results.
-// The single resolved lat/lng is reused for the map pin, the saturation radius,
-// and the Qloo location filter. See PLAN.md epic 5 for the full contract.
+// The gateway geocodes the city before any taste RPC. An ambiguous query
+// returns candidates and does not pick one. An empty query and unusable
+// coordinates are validation errors. Successful lookups are cached. Preset
+// campaigns skip this package and post their stored points (PLAN.md §20).
 package geocode
 
 import (
@@ -29,14 +28,36 @@ type Candidate struct {
 	Point Point
 }
 
-// Result is the outcome of geocoding a single address.
+// Result is the outcome of geocoding a single city query.
 type Result struct {
-	// Resolved is the chosen point when the address was unambiguous.
+	// Resolved is the chosen point when the query was unambiguous.
 	Resolved Point
-	// Candidates are populated when the address was ambiguous, so the caller can
-	// pause and ask the user to pick.
+	// FormattedAddress is the provider's display string for Resolved.
+	FormattedAddress string
+	// Candidates are populated when the query was ambiguous. Resolved is then
+	// the zero point; the caller must not pick one.
 	Candidates []Candidate
+	// Attribution is the provider credit the client is required to show.
+	Attribution string
+	// CacheHit is true when the result was served from the geocode cache.
+	CacheHit bool
 }
+
+// ValidationError is a city query or a coordinate pair the gateway must
+// reject before any taste RPC. Callers map it onto the validation error code.
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	if e == nil || e.Message == "" {
+		return "validation"
+	}
+	return e.Message
+}
+
+// AttributionGoogle is the credit stored beside a Google geocode.
+const AttributionGoogle = "Map data © Google"
 
 // Geocoder resolves addresses to points.
 type Geocoder interface {
