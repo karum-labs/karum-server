@@ -1,82 +1,45 @@
-// Package orchestrator drives an analysis job end to end.
+// Package orchestrator drives a scout run end to end.
 //
-// This is a skeleton. The job runner will:
+// The runner calls service-taste for doors and skip items, then service-ai for
+// the menu audit, the door pitch, and the LLM-only baseline. Each completion
+// writes a trace event. When Vertex fails, the run is marked degraded and the
+// taste ranking stays available with template pitches built from evidence only
+// (PLAN.md §15, §17, §18).
 //
-//  1. Geocode the vacancy address and return candidate points when ambiguous.
-//  2. Call service-taste over gRPC to resolve neighbour entities, pausing in
-//     "awaiting_confirmation" when a match is low confidence.
-//  3. Fetch the block profile, score candidates, and run the AI probe.
-//  4. Enrich pins via Places and optionally compute a site-visit route.
-//
-// Each step completion writes a trace event that the SSE stream emits. See
-// PLAN.md epic 5 (Gateway) for the full contract.
+// The taste and agent transports are interfaces: service clients land with the
+// HTTP surface in §19, while these tests use in-process fakes (§40).
 package orchestrator
 
-import (
-	"context"
-	"fmt"
-
-	"github.com/karum-labs/karum-server/internal/config"
-)
-
-// Stage names a step in the job lifecycle. They are emitted in trace events so
-// the client timeline can label each row.
-type Stage string
-
-const (
-	// StageGeocode resolves the vacancy address to a point.
-	StageGeocode Stage = "geocode"
-	// StageResolve calls service-taste to resolve neighbour entities.
-	StageResolve Stage = "resolve"
-	// StageProfile fetches the block profile from service-taste.
-	StageProfile Stage = "profile"
-	// StageScore ranks candidates in service-taste.
-	StageScore Stage = "score"
-	// StageProbe runs the AI contradiction probe.
-	StageProbe Stage = "probe"
-	// StageEnrich enriches pins via the Places API.
-	StageEnrich Stage = "enrich"
-)
-
-// JobState is the lifecycle state of an analysis job. It mirrors the shared
-// proto job-state enum so the client maps it one to one.
+// JobState is the lifecycle state of a scout run. It mirrors the shared proto
+// job-state enum so the client maps it one to one.
 type JobState string
 
 const (
 	// StateResolving means entity resolution is in flight.
 	StateResolving JobState = "resolving"
-	// StateAwaitingConfirmation means the job is paused for user input.
-	StateAwaitingConfirmation JobState = "awaiting_confirmation"
 	// StateRunning means the main pipeline is executing.
 	StateRunning JobState = "running"
-	// StateReady means the shortlist is available.
+	// StateReady means the campaign is available.
 	StateReady JobState = "ready"
-	// StateDegraded means the run finished on the deterministic autopilot.
+	// StateDegraded means the run finished without Vertex output.
 	StateDegraded JobState = "degraded"
-	// StateFailed means the run could not produce a shortlist.
+	// StateFailed means the run could not produce a door list.
 	StateFailed JobState = "failed"
 )
 
-// Orchestrator runs analysis jobs against the two microservices.
-type Orchestrator struct {
-	cfg *config.Config
-}
+// Stage names a step in the run lifecycle. They label trace events so the
+// client timeline can show what finished.
+type Stage string
 
-// New builds an Orchestrator bound to the given config.
-func New(cfg *config.Config) *Orchestrator {
-	return &Orchestrator{cfg: cfg}
-}
-
-// Run executes the full pipeline for a single vacancy. It is a stub: the real
-// implementation dials service-taste and service-ai over gRPC and persists run
-// state in Postgres.
-//
-// TODO(orchestration): implement resolve -> confirm -> profile -> score ->
-// probe -> baseline, persisting the exact Qloo payloads on the run so a later
-// cache refresh cannot rewrite history.
-func (o *Orchestrator) Run(ctx context.Context, vacancyID string) (JobState, error) {
-	if vacancyID == "" {
-		return StateFailed, fmt.Errorf("vacancy id is required")
-	}
-	return StateFailed, fmt.Errorf("orchestrator not implemented: run %q", vacancyID)
-}
+const (
+	// StageBaseline calls the LLM-only counterfactual.
+	StageBaseline Stage = "baseline"
+	// StageScout calls service-taste for doors and skip items.
+	StageScout Stage = "scout"
+	// StageAudit calls service-ai for the menu audit.
+	StageAudit Stage = "menu_grounding"
+	// StageDraft calls service-ai for one door pitch.
+	StageDraft Stage = "draft"
+	// StageRegenerate calls only the draft RPC for one door.
+	StageRegenerate Stage = "regenerate"
+)
