@@ -9,6 +9,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -57,8 +58,64 @@ func NewRouterWithDeps(cfg *config.Config, deps Dependencies) *gin.Engine {
 	}
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(corsMiddleware(cfg.ClientOrigins))
 	registerRoutes(r, newHandler(cfg, deps))
 	return r
+}
+
+// corsMiddleware allows browser clients from the configured origins. With no
+// allow-list it permits local development origins (localhost and 127.0.0.1 on
+// any port), which is what `make local` serves the Flutter client from.
+func corsMiddleware(allowed []string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			c.Next()
+			return
+		}
+
+		if originAllowed(origin, allowed) {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			if requested := c.GetHeader("Access-Control-Request-Headers"); requested != "" {
+				c.Header("Access-Control-Allow-Headers", requested)
+			} else {
+				c.Header("Access-Control-Allow-Headers", "Accept, Content-Type, Idempotency-Key")
+			}
+			c.Header("Access-Control-Max-Age", "600")
+		}
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
+}
+
+// originAllowed matches the request origin against the configured list, or
+// accepts a loopback host when no list is configured.
+func originAllowed(origin string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return isLoopbackOrigin(origin)
+	}
+	for _, candidate := range allowed {
+		if origin == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+// isLoopbackOrigin reports whether origin is http(s)://localhost or
+// http(s)://127.0.0.1 on any port.
+func isLoopbackOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	return u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"
 }
 
 // registerRoutes adds every route to the engine.

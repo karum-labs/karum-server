@@ -285,12 +285,24 @@ type CompareChart struct {
 	MatchEntitiesPresent bool
 }
 
+// HeatmapCell is one density point returned by service-taste. Latitude and
+// longitude are the cell centroid; affinity is a 0–1 Qloo value.
+type HeatmapCell struct {
+	Lat          float64
+	Lng          float64
+	Affinity     float64
+	AffinityRank int
+	Popularity   float64
+	Geohash      string
+}
+
 // HeatmapView is the flagship density layer the map draws.
 type HeatmapView struct {
 	Available  bool
 	Reason     string
 	Corridors  []string
 	Anchors    []SeedEntity
+	Cells      []HeatmapCell
 	CellCount  int
 	Localities int
 }

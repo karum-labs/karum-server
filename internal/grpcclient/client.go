@@ -143,6 +143,17 @@ func (c *Clients) GetLocalityHeatmap(ctx context.Context, req orchestrator.Heatm
 	for _, anchor := range resp.GetAnchors() {
 		view.Anchors = append(view.Anchors, fromEntity(anchor))
 	}
+	for _, cell := range resp.GetCells() {
+		loc := cell.GetLocation()
+		view.Cells = append(view.Cells, orchestrator.HeatmapCell{
+			Lat:          loc.GetLatitude(),
+			Lng:          loc.GetLongitude(),
+			Affinity:     cell.GetAffinity(),
+			AffinityRank: int(cell.GetAffinityRank()),
+			Popularity:   cell.GetPopularity(),
+			Geohash:      cell.GetGeohash(),
+		})
+	}
 	return view, nil
 }
 

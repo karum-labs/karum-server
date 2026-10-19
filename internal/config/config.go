@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -58,6 +59,10 @@ type Config struct {
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout time.Duration
 
+	// ClientOrigins is the CORS allow-list for browser clients. Empty permits
+	// local development origins (localhost and 127.0.0.1 on any port).
+	ClientOrigins []string
+
 	// PlacesAPIKey enriches doors. Empty leaves enrichment unknown.
 	PlacesAPIKey string
 	// RoutesAPIKey orders the field route. Empty skips routing.
@@ -91,6 +96,7 @@ func FromEnv() (*Config, error) {
 		ReadTimeout:     getenvDuration("GATEWAY_READ_TIMEOUT", 15*time.Second),
 		WriteTimeout:    getenvDuration("GATEWAY_WRITE_TIMEOUT", 0),
 		ShutdownTimeout: getenvDuration("GATEWAY_SHUTDOWN_TIMEOUT", 10*time.Second),
+		ClientOrigins:   splitList(os.Getenv("CLIENT_ORIGIN")),
 		PlacesAPIKey:    os.Getenv("GOOGLE_PLACES_API_KEY"),
 		RoutesAPIKey:    os.Getenv("GOOGLE_ROUTES_API_KEY"),
 		GeocodeAPIKey:   firstNonEmpty(os.Getenv("GOOGLE_GEOCODING_API_KEY"), os.Getenv("GOOGLE_PLACES_API_KEY")),
@@ -120,6 +126,20 @@ func FromEnv() (*Config, error) {
 // Addr returns the listen address for the HTTP server.
 func (c *Config) Addr() string {
 	return ":" + strconv.Itoa(c.Port)
+}
+
+// splitList parses a comma- or space-separated environment list.
+func splitList(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ' '
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func firstNonEmpty(values ...string) string {

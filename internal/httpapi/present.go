@@ -53,7 +53,26 @@ type doorBody struct {
 	Enrichment  *enrichBody  `json:"enrichment,omitempty"`
 	Compare     *compareBody `json:"compare,omitempty"`
 	Pitch       *pitchBody   `json:"pitch,omitempty"`
+	Menu        *menuBody    `json:"menu,omitempty"`
 	EvidenceIDs []string     `json:"evidence_ids"`
+}
+
+type menuBody struct {
+	Summary         string          `json:"summary,omitempty"`
+	ShelfUnknown    bool            `json:"shelf_unknown"`
+	CompetitorCount int             `json:"competitor_count,omitempty"`
+	Incumbents      []incumbentBody `json:"incumbents,omitempty"`
+	Sources         []sourceBody    `json:"sources,omitempty"`
+}
+
+type incumbentBody struct {
+	Name    string       `json:"name"`
+	Sources []sourceBody `json:"sources,omitempty"`
+}
+
+type sourceBody struct {
+	URL   string `json:"url"`
+	Title string `json:"title,omitempty"`
 }
 
 type scoreSetBody struct {
@@ -132,12 +151,22 @@ type baselineBody struct {
 }
 
 type heatmapBody struct {
-	Available  bool     `json:"available"`
-	Reason     string   `json:"reason,omitempty"`
-	Corridors  []string `json:"corridors,omitempty"`
-	Anchors    []string `json:"anchors,omitempty"`
-	CellCount  int      `json:"cell_count"`
-	Localities int      `json:"localities"`
+	Available  bool          `json:"available"`
+	Reason     string        `json:"reason,omitempty"`
+	Corridors  []string      `json:"corridors,omitempty"`
+	Anchors    []string      `json:"anchors,omitempty"`
+	Cells      []heatmapCell `json:"cells,omitempty"`
+	CellCount  int           `json:"cell_count"`
+	Localities int           `json:"localities"`
+}
+
+type heatmapCell struct {
+	Lat          float64 `json:"lat"`
+	Lng          float64 `json:"lng"`
+	Affinity     float64 `json:"affinity,omitempty"`
+	AffinityRank int     `json:"affinity_rank,omitempty"`
+	Popularity   float64 `json:"popularity,omitempty"`
+	Geohash      string  `json:"geohash,omitempty"`
 }
 
 type routeBody struct {
@@ -198,7 +227,7 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 		out.Brand.SKUs = append(out.Brand.SKUs, skuBody{ID: sku.ID, Name: sku.Name})
 	}
 	for _, door := range run.Doors {
-		out.Doors = append(out.Doors, doorOf(door, run.Pitches[door.Entity.ID]))
+		out.Doors = append(out.Doors, doorOf(door, run.Pitches[door.Entity.ID], run.Findings[door.Entity.ID]))
 	}
 	if out.Doors == nil {
 		out.Doors = []doorBody{}
@@ -239,6 +268,13 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 		for _, anchor := range run.Heatmap.Anchors {
 			body.Anchors = append(body.Anchors, anchor.Name)
 		}
+		for _, cell := range run.Heatmap.Cells {
+			body.Cells = append(body.Cells, heatmapCell{
+				Lat: cell.Lat, Lng: cell.Lng, Affinity: cell.Affinity,
+				AffinityRank: cell.AffinityRank, Popularity: cell.Popularity,
+				Geohash: cell.Geohash,
+			})
+		}
 		out.Heatmap = body
 	}
 	if run.Route != nil {
@@ -258,7 +294,7 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 	return out
 }
 
-func doorOf(door orchestrator.Door, pitch orchestrator.Pitch) doorBody {
+func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrator.AuditFinding) doorBody {
 	body := doorBody{
 		ID: door.Entity.ID, Name: door.Entity.Name, Rank: door.Rank,
 		EvidenceIDs: door.EvidenceIDs,
@@ -300,6 +336,24 @@ func doorOf(door orchestrator.Door, pitch orchestrator.Pitch) doorBody {
 			chart.Tags = append(chart.Tags, tagBody{URN: tag.URN, Label: tag.Label})
 		}
 		body.Compare = chart
+	}
+	if finding.Succeeded || finding.ShelfUnknown || finding.MenuSummary != "" || len(finding.Incumbents) > 0 {
+		menu := &menuBody{
+			Summary:         finding.MenuSummary,
+			ShelfUnknown:    finding.ShelfUnknown,
+			CompetitorCount: finding.CompetitorCount,
+		}
+		for _, incumbent := range finding.Incumbents {
+			item := incumbentBody{Name: incumbent.Name}
+			for _, source := range incumbent.Sources {
+				item.Sources = append(item.Sources, sourceBody{URL: source.URL, Title: source.Title})
+			}
+			menu.Incumbents = append(menu.Incumbents, item)
+		}
+		for _, source := range finding.Sources {
+			menu.Sources = append(menu.Sources, sourceBody{URL: source.URL, Title: source.Title})
+		}
+		body.Menu = menu
 	}
 	if pitch.Script != "" || pitch.Template {
 		item := &pitchBody{

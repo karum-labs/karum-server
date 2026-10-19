@@ -59,6 +59,26 @@ func TestFromEnvRejectsInvalidPort(t *testing.T) {
 	}
 }
 
+func TestFromEnvReadsClientOrigins(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
+	t.Setenv("CLIENT_ORIGIN", "https://karum.example, https://judges.example")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+
+	want := []string{"https://karum.example", "https://judges.example"}
+	if len(cfg.ClientOrigins) != len(want) {
+		t.Fatalf("ClientOrigins = %v, want %v", cfg.ClientOrigins, want)
+	}
+	for i := range want {
+		if cfg.ClientOrigins[i] != want[i] {
+			t.Errorf("ClientOrigins[%d] = %q, want %q", i, cfg.ClientOrigins[i], want[i])
+		}
+	}
+}
+
 func TestFromEnvReadsOverrides(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
 	t.Setenv("GATEWAY_PORT", "9090")

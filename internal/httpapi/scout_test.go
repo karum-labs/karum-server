@@ -395,6 +395,110 @@ func TestAbortAndRateLimit(t *testing.T) {
 	t.Fatal("aborted job did not fail")
 }
 
+type payloadHeatmap struct{}
+
+func (payloadHeatmap) GetLocalityHeatmap(context.Context, orchestrator.HeatmapQuery) (orchestrator.HeatmapView, error) {
+	return orchestrator.HeatmapView{
+		Available: true,
+		Corridors: []string{"Williamsburg"},
+		CellCount: 1,
+		Cells: []orchestrator.HeatmapCell{{
+			Lat: 40.71, Lng: -73.96, Affinity: 0.8, AffinityRank: 3, Popularity: 0.4, Geohash: "dr5ru",
+		}},
+	}, nil
+}
+
+type payloadAgent struct{}
+
+func (payloadAgent) LlmOnlyBaseline(context.Context, orchestrator.BaselineRequest) (orchestrator.BaselineResult, error) {
+	return orchestrator.BaselineResult{Text: "ungrounded", VenueNames: []string{"Somewhere"}}, nil
+}
+
+func (payloadAgent) AuditMenu(context.Context, orchestrator.AuditRequest) (orchestrator.AuditResult, error) {
+	return orchestrator.AuditResult{Findings: []orchestrator.AuditFinding{{
+		Door:            orchestrator.SeedEntity{ID: "d-1", Name: "Menu Door"},
+		Succeeded:       true,
+		ShelfUnknown:    true,
+		CompetitorCount: 2,
+		MenuSummary:     "Two mezcal competitors on the list.",
+		Incumbents: []orchestrator.Incumbent{{
+			Name:    "Del Maguey",
+			Sources: []orchestrator.Source{{URL: "https://example.com/menu", Title: "Menu"}},
+		}},
+		Sources: []orchestrator.Source{{URL: "https://example.com/list", Title: "List"}},
+	}}}, nil
+}
+
+func (payloadAgent) DraftDoorPitch(context.Context, orchestrator.DraftRequest) (orchestrator.DraftResult, error) {
+	return orchestrator.DraftResult{Script: "Grounded pitch (ev-0001)."}, nil
+}
+
+func TestCampaignPayloadCarriesMenuFindingsAndHeatmapCells(t *testing.T) {
+	store := orchestrator.NewStore()
+	runner := orchestrator.NewRunner(&httpTaste{name: "Menu Door"}, payloadAgent{}, store).
+		WithHeatmap(payloadHeatmap{})
+	srv := httptest.NewServer(NewRouterWithDeps(&config.Config{Mode: config.ModeFixture, Version: "test"}, Dependencies{
+		Fixture: runner, Store: store,
+	}))
+	defer srv.Close()
+
+	created := decode(t, postJSON(t, srv, "/api/v1/scout", "menu-cells", map[string]any{"preset_id": "brooklyn-flagship"}))
+	id, _ := created["job_id"].(string)
+	if id == "" {
+		t.Fatalf("job = %+v", created)
+	}
+	get, err := http.Get(srv.URL + "/api/v1/scout/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := decode(t, get)
+
+	doors, _ := body["doors"].([]any)
+	if len(doors) != 1 {
+		t.Fatalf("doors = %+v", body["doors"])
+	}
+	door, _ := doors[0].(map[string]any)
+	menu, ok := door["menu"].(map[string]any)
+	if !ok {
+		t.Fatalf("door has no menu block: %+v", door)
+	}
+	if menu["shelf_unknown"] != true || menu["competitor_count"] != float64(2) {
+		t.Fatalf("menu = %+v", menu)
+	}
+	if menu["summary"] != "Two mezcal competitors on the list." {
+		t.Fatalf("menu summary = %v", menu["summary"])
+	}
+	incumbents, _ := menu["incumbents"].([]any)
+	if len(incumbents) != 1 {
+		t.Fatalf("incumbents = %+v", menu["incumbents"])
+	}
+	incumbent, _ := incumbents[0].(map[string]any)
+	if incumbent["name"] != "Del Maguey" {
+		t.Fatalf("incumbent = %+v", incumbent)
+	}
+	sources, _ := incumbent["sources"].([]any)
+	if len(sources) != 1 {
+		t.Fatalf("incumbent sources = %+v", incumbent["sources"])
+	}
+	source, _ := sources[0].(map[string]any)
+	if source["url"] != "https://example.com/menu" || source["title"] != "Menu" {
+		t.Fatalf("source = %+v", source)
+	}
+
+	heatmap, ok := body["heatmap"].(map[string]any)
+	if !ok {
+		t.Fatalf("campaign has no heatmap: %+v", body)
+	}
+	cells, _ := heatmap["cells"].([]any)
+	if len(cells) != 1 {
+		t.Fatalf("cells = %+v", heatmap["cells"])
+	}
+	cell, _ := cells[0].(map[string]any)
+	if cell["lat"] != 40.71 || cell["lng"] != -73.96 || cell["affinity"] != 0.8 || cell["affinity_rank"] != float64(3) {
+		t.Fatalf("cell = %+v", cell)
+	}
+}
+
 func TestHealthReportsDependencies(t *testing.T) {
 	router := NewRouterWithDeps(&config.Config{Mode: config.ModeFixture, Version: "test"}, Dependencies{
 		Probes: Probes{

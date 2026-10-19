@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -121,7 +123,7 @@ func (s *Store) NewestReady(presetID string) (*Run, bool) {
 		if run.State != StateReady && run.State != StateDegraded {
 			continue
 		}
-		if best == nil || run.CreatedAt.After(best.CreatedAt) {
+		if best == nil || newerRun(run, best) {
 			best = run
 		}
 	}
@@ -129,6 +131,41 @@ func (s *Store) NewestReady(presetID string) (*Run, bool) {
 		return nil, false
 	}
 	return best.clone(), true
+}
+
+// newerRun reports whether candidate is newer than best. Creation timestamps
+// can tie when two runs start inside one clock tick (a real case on Windows,
+// whose system clock is coarser than the nanosecond digits suggest), so the
+// monotonically increasing run id breaks the tie. Without it a map-ordered
+// scan would return an arbitrary run.
+func newerRun(candidate, best *Run) bool {
+	if !candidate.CreatedAt.Equal(best.CreatedAt) {
+		return candidate.CreatedAt.After(best.CreatedAt)
+	}
+	return runIDLess(best.ID, candidate.ID)
+}
+
+// runIDLess orders run ids by their numeric suffix ("run-0002" after
+// "run-0001"), falling back to lexicographic order for ids without one.
+func runIDLess(a, b string) bool {
+	na, aOK := trailingNumber(a)
+	nb, bOK := trailingNumber(b)
+	if aOK && bOK {
+		return na < nb
+	}
+	return a < b
+}
+
+func trailingNumber(id string) (int, bool) {
+	idx := strings.LastIndexByte(id, '-')
+	if idx < 0 || idx == len(id)-1 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(id[idx+1:])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // NewestForCampaign returns the newest run of a campaign, ready or not.
@@ -140,7 +177,7 @@ func (s *Store) NewestForCampaign(campaignID string) (*Run, bool) {
 		if run.CampaignID != campaignID {
 			continue
 		}
-		if best == nil || run.CreatedAt.After(best.CreatedAt) {
+		if best == nil || newerRun(run, best) {
 			best = run
 		}
 	}
