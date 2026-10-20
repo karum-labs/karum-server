@@ -45,11 +45,17 @@ func New() *Catalog {
 				{ID: "41C4BB40-E667-416F-9541-63FD7E7FFFF5", Name: "Ilegal Mezcal", Type: "urn:entity:brand"},
 				{ID: "BAF6317A-DF94-4C90-92AE-63F86560C21B", Name: "Khruangbin", Type: "urn:entity:artist"},
 			},
+			// The batch the skip probe scored, not the ones that fell below
+			// the floor: Franklin Barbecue was inside the returned range and
+			// the taste service drops it on its own. Sending the four the
+			// recording skipped would ask a different question than the one
+			// that was recorded.
 			SkipCandidateIDs: []string{
 				"AD3677DA-5D2D-4FBD-8DCA-93D7ED616938",
 				"314D0217-CAF0-4758-AB13-6C5CEB355431",
 				"572A6EDD-A341-4C1D-8316-6DB97A55BE78",
 				"AFB7D16C-D6E0-482D-9A12-41C17D9A9CCF",
+				"CE9EE2BD-D7AE-4349-B627-3D051D98AE77",
 			},
 		},
 		{
