@@ -132,6 +132,10 @@ type AuditTarget struct {
 	Website       string
 	Tags          []Tag
 	SkipCandidate bool
+	// QlooIncumbentNames are the competitor names the Qloo payload already
+	// carries for this campaign. A competitor the model names survives only
+	// when a grounding source or one of these names carries it (PLAN.md §16).
+	QlooIncumbentNames []string
 }
 
 // Source is one grounding citation. It is never a fetch target.
@@ -207,8 +211,13 @@ type DraftResult struct {
 	Battlecard     *Battlecard
 	RecommendedSKU SKU
 	ModeParagraph  string
-	ErrorCode      string
-	ErrorMessage   string
+	// ModelID, PromptVersion, and EvidenceIDs are the AI response's
+	// attribution; every response carries it (PLAN.md §3).
+	ModelID       string
+	PromptVersion string
+	EvidenceIDs   []string
+	ErrorCode     string
+	ErrorMessage  string
 }
 
 // BaselineRequest is the generic-LLM counterfactual for the same inputs.
@@ -233,6 +242,12 @@ type Pitch struct {
 	RecommendedSKU SKU
 	ModeParagraph  string
 	Template       bool
+	// ModelID, PromptVersion, and EvidenceIDs are the AI response's
+	// attribution, kept with the pitch so the run records which model wrote
+	// it and which evidence it cited (PLAN.md §3).
+	ModelID       string
+	PromptVersion string
+	EvidenceIDs   []string
 }
 
 // TraceEvent is one completed hop the client timeline renders.

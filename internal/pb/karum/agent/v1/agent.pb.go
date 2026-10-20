@@ -331,7 +331,7 @@ func (TraceStatus) EnumDescriptor() ([]byte, []int) {
 // ModelAttribution travels on every AI response (PLAN.md §3).
 type ModelAttribution struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Input: the model id that wrote the response, e.g. "gemini-2.5-flash"; on
+	// Input: the model id that wrote the response, e.g. "gemini-3.8-flash"; on
 	// a degraded run it is "template", naming the deterministic fallback.
 	ModelId string `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	// Input: the prompt template version, e.g. "draft-door-pitch@v1".
@@ -722,7 +722,9 @@ func (x *GroundingSource) GetTitle() string {
 
 // Incumbent is a competitor the audit found on the live menu or shelf. It is
 // named only when a grounding source or the Qloo payload contains it
-// (PLAN.md §16).
+// (PLAN.md §16). The service drops an unsourced name and recomputes
+// `O_shelf`; the gateway supplies the payload names as
+// `MenuAuditTarget.qloo_incumbent_names`.
 type Incumbent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Google fact: the competitor name, present in the grounding sources.
@@ -791,8 +793,14 @@ type MenuAuditTarget struct {
 	// Input: true when the target is a skip candidate the skip rule might
 	// cite, not a board door.
 	SkipCandidate bool `protobuf:"varint,4,opt,name=skip_candidate,json=skipCandidate,proto3" json:"skip_candidate,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Qloo fact: the competitor names the Qloo payload already carries for this
+	// campaign — the resolved seed entity names and the resolved skip-candidate
+	// names. A competitor the model names is kept only when a grounding source
+	// or one of these names carries it (PLAN.md §16); an unsourced name is
+	// dropped and `O_shelf` is recomputed.
+	QlooIncumbentNames []string `protobuf:"bytes,5,rep,name=qloo_incumbent_names,json=qlooIncumbentNames,proto3" json:"qloo_incumbent_names,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *MenuAuditTarget) Reset() {
@@ -851,6 +859,13 @@ func (x *MenuAuditTarget) GetSkipCandidate() bool {
 		return x.SkipCandidate
 	}
 	return false
+}
+
+func (x *MenuAuditTarget) GetQlooIncumbentNames() []string {
+	if x != nil {
+		return x.QlooIncumbentNames
+	}
+	return nil
 }
 
 // MenuAuditResult is one venue's shelf read.
@@ -1269,7 +1284,12 @@ type DraftDoorPitchRequest struct {
 	City string `protobuf:"bytes,5,opt,name=city,proto3" json:"city,omitempty"`
 	// Input: a hard word cap per text so a judge can finish the read
 	// (PLAN.md §17).
-	MaxWords      int32 `protobuf:"varint,6,opt,name=max_words,json=maxWords,proto3" json:"max_words,omitempty"`
+	MaxWords int32 `protobuf:"varint,6,opt,name=max_words,json=maxWords,proto3" json:"max_words,omitempty"`
+	// Input: the evidence ids of the run, e.g. "ev-0001". This is the
+	// allow-set the citation filter checks against: a sentence that states a
+	// number and cites an id outside this set is dropped, and an empty set
+	// drops every sentence that states a number (PLAN.md §17, §18).
+	EvidenceIds   []string `protobuf:"bytes,7,rep,name=evidence_ids,json=evidenceIds,proto3" json:"evidence_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1344,6 +1364,13 @@ func (x *DraftDoorPitchRequest) GetMaxWords() int32 {
 		return x.MaxWords
 	}
 	return 0
+}
+
+func (x *DraftDoorPitchRequest) GetEvidenceIds() []string {
+	if x != nil {
+		return x.EvidenceIds
+	}
+	return nil
 }
 
 // DraftDoorPitchResponse returns the script and its supporting texts.
@@ -1660,13 +1687,14 @@ const file_karum_agent_v1_agent_proto_rawDesc = "" +
 	"\x05title\x18\x02 \x01(\tR\x05title\"Z\n" +
 	"\tIncumbent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
-	"\asources\x18\x02 \x03(\v2\x1f.karum.agent.v1.GroundingSourceR\asources\"\xb7\x01\n" +
+	"\asources\x18\x02 \x03(\v2\x1f.karum.agent.v1.GroundingSourceR\asources\"\xe9\x01\n" +
 	"\x0fMenuAuditTarget\x12.\n" +
 	"\x04door\x18\x01 \x01(\v2\x1a.karum.common.v1.EntityRefR\x04door\x12\x18\n" +
 	"\awebsite\x18\x02 \x01(\tR\awebsite\x123\n" +
 	"\n" +
 	"taste_tags\x18\x03 \x03(\v2\x14.karum.common.v1.TagR\ttasteTags\x12%\n" +
-	"\x0eskip_candidate\x18\x04 \x01(\bR\rskipCandidate\"\xf5\x02\n" +
+	"\x0eskip_candidate\x18\x04 \x01(\bR\rskipCandidate\x120\n" +
+	"\x14qloo_incumbent_names\x18\x05 \x03(\tR\x12qlooIncumbentNames\"\xf5\x02\n" +
 	"\x0fMenuAuditResult\x12.\n" +
 	"\x04door\x18\x01 \x01(\v2\x1a.karum.common.v1.EntityRefR\x04door\x12\x1c\n" +
 	"\tsucceeded\x18\x02 \x01(\bR\tsucceeded\x12#\n" +
@@ -1699,14 +1727,15 @@ const file_karum_agent_v1_agent_proto_rawDesc = "" +
 	"\bheadline\x18\x01 \x01(\tR\bheadline\x12%\n" +
 	"\x0eincumbent_name\x18\x02 \x01(\tR\rincumbentName\x12%\n" +
 	"\x0etalking_points\x18\x03 \x03(\tR\rtalkingPoints\x12'\n" +
-	"\x0fcompare_summary\x18\x04 \x01(\tR\x0ecompareSummary\"\x91\x02\n" +
+	"\x0fcompare_summary\x18\x04 \x01(\tR\x0ecompareSummary\"\xb4\x02\n" +
 	"\x15DraftDoorPitchRequest\x120\n" +
 	"\x04meta\x18\x01 \x01(\v2\x1c.karum.common.v1.RequestMetaR\x04meta\x120\n" +
 	"\x04mode\x18\x02 \x01(\x0e2\x1c.karum.agent.v1.CampaignModeR\x04mode\x122\n" +
 	"\x05brand\x18\x03 \x01(\v2\x1c.karum.agent.v1.BrandContextR\x05brand\x12/\n" +
 	"\x04door\x18\x04 \x01(\v2\x1b.karum.agent.v1.DoorContextR\x04door\x12\x12\n" +
 	"\x04city\x18\x05 \x01(\tR\x04city\x12\x1b\n" +
-	"\tmax_words\x18\x06 \x01(\x05R\bmaxWords\"\xf5\x02\n" +
+	"\tmax_words\x18\x06 \x01(\x05R\bmaxWords\x12!\n" +
+	"\fevidence_ids\x18\a \x03(\tR\vevidenceIds\"\xf5\x02\n" +
 	"\x16DraftDoorPitchResponse\x12\x16\n" +
 	"\x06script\x18\x01 \x01(\tR\x06script\x12:\n" +
 	"\n" +

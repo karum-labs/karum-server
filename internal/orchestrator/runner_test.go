@@ -114,6 +114,62 @@ func upstream(message string) error {
 	return &UpstreamError{Code: CodeUpstream, Message: message, Cause: errors.New(message)}
 }
 
+func TestDraftsReceiveTheRunsEvidenceSetAsTheAllowSet(t *testing.T) {
+	taste, agent := healthyTaste(), healthyAgent()
+	runner := NewRunner(taste, agent, NewStore())
+
+	if _, err := runner.Run(context.Background(), testRequest(false)); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(agent.draftCalls) == 0 {
+		t.Fatal("no draft was requested")
+	}
+	for _, call := range agent.draftCalls {
+		if len(call.EvidenceIDs) == 0 {
+			t.Fatal("the draft received no allow-set, so every cited id would pass")
+		}
+		found := false
+		for _, id := range call.EvidenceIDs {
+			if id == "ev-0001" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("the run's evidence set is missing ev-0001: %v", call.EvidenceIDs)
+		}
+	}
+}
+
+func TestAuditTargetsCarryTheQlooNames(t *testing.T) {
+	taste, agent := healthyTaste(), healthyAgent()
+	runner := NewRunner(taste, agent, NewStore())
+
+	if _, err := runner.Run(context.Background(), testRequest(false)); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(agent.auditCalls) == 0 {
+		t.Fatal("no audit was requested")
+	}
+	targets := agent.auditCalls[0].Targets
+	if len(targets) == 0 {
+		t.Fatal("the audit had no targets")
+	}
+	names := targets[0].QlooIncumbentNames
+	seedNamed := false
+	skipNamed := false
+	for _, name := range names {
+		if name == "Ilegal Mezcal" {
+			seedNamed = true
+		}
+		if name == "Maggie Mae's" {
+			skipNamed = true
+		}
+	}
+	if !seedNamed || !skipNamed {
+		t.Fatalf("the Qloo names did not reach the audit: %v", names)
+	}
+}
+
 // --- tests -----------------------------------------------------------------
 
 func TestRunReadyStoresBaselineAndPitches(t *testing.T) {

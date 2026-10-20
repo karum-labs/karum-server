@@ -4,11 +4,11 @@
 // - protoc             (unknown)
 // source: karum/health/v1/health.proto
 
-// Package karum.health.v1 is the placeholder shared contract that both
-// microservices implement over gRPC. It exists so `buf generate` and
+// Package karum.health.v1 is the shared health contract that every
+// microservice implements over gRPC. It exists so `buf generate` and
 // `buf breaking` have a real module to validate from the first commit; the
-// domain protos (vacancy, tags, scoring, taste RPCs, AI RPCs) are added in a
-// later pass per PLAN.md epics 4-6.
+// domain protos (taste RPCs, AI RPCs) live beside it in `karum.taste.v1` and
+// `karum.agent.v1` (PLAN.md §1).
 
 package healthv1
 

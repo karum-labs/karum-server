@@ -211,10 +211,11 @@ func (c *Clients) AuditMenu(ctx context.Context, req orchestrator.AuditRequest) 
 	targets := make([]*agentv1.MenuAuditTarget, len(req.Targets))
 	for i, target := range req.Targets {
 		targets[i] = &agentv1.MenuAuditTarget{
-			Door:          entity(target.Door),
-			Website:       target.Website,
-			TasteTags:     tags(target.Tags),
-			SkipCandidate: target.SkipCandidate,
+			Door:               entity(target.Door),
+			Website:            target.Website,
+			TasteTags:          tags(target.Tags),
+			SkipCandidate:      target.SkipCandidate,
+			QlooIncumbentNames: append([]string(nil), target.QlooIncumbentNames...),
 		}
 	}
 	resp, err := c.agent.AuditMenu(ctx, &agentv1.AuditMenuRequest{
@@ -262,6 +263,10 @@ func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequ
 			Skus: skus(req.Brand.SKUs),
 		},
 		Door: doorContext(req),
+		// The run's evidence set is the allow-set a cited id must belong to.
+		// An empty set is strict: every sentence that states a number is
+		// dropped (PLAN.md §17, §18).
+		EvidenceIds: append([]string(nil), req.EvidenceIDs...),
 	})
 	if err != nil {
 		return orchestrator.DraftResult{}, rpcErr(err)
@@ -270,6 +275,9 @@ func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequ
 		Script:         resp.GetScript(),
 		ModeParagraph:  resp.GetModeParagraph(),
 		RecommendedSKU: orchestrator.SKU{ID: resp.GetRecommendedSku().GetId(), Name: resp.GetRecommendedSku().GetName()},
+		ModelID:        resp.GetAttribution().GetModelId(),
+		PromptVersion:  resp.GetAttribution().GetPromptVersion(),
+		EvidenceIDs:    append([]string(nil), resp.GetAttribution().GetEvidenceIds()...),
 		ErrorCode:      codeName(resp.GetErrorCode()),
 		ErrorMessage:   resp.GetErrorMessage(),
 	}

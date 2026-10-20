@@ -245,7 +245,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 			var callErr error
 			audit, callErr = r.agent.AuditMenu(ctx, AuditRequest{
 				Mode:    run.Mode,
-				Targets: auditTargets(run.Doors),
+				Targets: auditTargets(run.Doors, qlooNames(run, req)),
 			})
 			return callErr
 		})
@@ -320,7 +320,7 @@ func (r *Runner) RegenerateDoor(
 		finding = AuditFinding{Door: door.Entity, ShelfUnknown: true}
 	}
 	if len(evidenceIDs) == 0 {
-		evidenceIDs = door.EvidenceIDs
+		evidenceIDs = runEvidenceIDs(run, door)
 	}
 
 	started := time.Now()
@@ -350,8 +350,11 @@ func (r *Runner) RegenerateDoor(
 		Battlecard:     draft.Battlecard,
 		RecommendedSKU: draft.RecommendedSKU,
 		ModeParagraph:  draft.ModeParagraph,
+		ModelID:        draft.ModelID,
+		PromptVersion:  draft.PromptVersion,
+		EvidenceIDs:    draft.EvidenceIDs,
 	}
-	r.trace(run, StageRegenerate, started, door.Entity.Name, false)
+	r.trace(run, StageRegenerate, started, draftDetail(door, draft), false)
 	r.store.Put(run)
 	return run, nil
 }
@@ -374,12 +377,14 @@ func (r *Runner) draftDoor(
 	err := r.callAI(ctx, func(ctx context.Context) error {
 		var callErr error
 		draft, callErr = r.agent.DraftDoorPitch(ctx, DraftRequest{
-			Brand:       req.Brand,
-			Door:        door,
-			Finding:     finding,
-			City:        req.City,
-			Mode:        run.Mode,
-			EvidenceIDs: door.EvidenceIDs,
+			Brand:   req.Brand,
+			Door:    door,
+			Finding: finding,
+			City:    req.City,
+			Mode:    run.Mode,
+			// The run's evidence set is the allow-set a cited id must belong
+			// to; an id outside it is dropped (PLAN.md §17).
+			EvidenceIDs: runEvidenceIDs(run, door),
 		})
 		return callErr
 	})
@@ -389,8 +394,11 @@ func (r *Runner) draftDoor(
 			Battlecard:     draft.Battlecard,
 			RecommendedSKU: draft.RecommendedSKU,
 			ModeParagraph:  draft.ModeParagraph,
+			ModelID:        draft.ModelID,
+			PromptVersion:  draft.PromptVersion,
+			EvidenceIDs:    draft.EvidenceIDs,
 		}
-		r.trace(run, StageDraft, started, door.Entity.Name, false)
+		r.trace(run, StageDraft, started, draftDetail(door, draft), false)
 		return
 	}
 
@@ -404,6 +412,15 @@ func (r *Runner) draftDoor(
 	run.Warnings = append(run.Warnings, fmt.Sprintf("draft for %s: %s", door.Entity.Name, message))
 	run.Pitches[door.Entity.ID] = templatePitch(door, finding, req.Brand, run.Mode)
 	r.trace(run, StageDraft, started, "template: "+door.Entity.Name, false)
+}
+
+// draftDetail names the door and the model that wrote the pitch, so the
+// timeline records which model produced the text (PLAN.md §3).
+func draftDetail(door Door, draft DraftResult) string {
+	if draft.ModelID == "" {
+		return door.Entity.Name
+	}
+	return door.Entity.Name + " (" + draft.ModelID + ")"
 }
 
 // templatePitch builds a usable pitch from evidence fields only, so a degraded
@@ -455,8 +472,10 @@ func templatePitch(door Door, finding AuditFinding, brand BrandContext, mode Mod
 	return pitch
 }
 
-// auditTargets caps the audit at the working shortlist.
-func auditTargets(doors []Door) []AuditTarget {
+// auditTargets caps the audit at the working shortlist. The Qloo names travel
+// with each target so a competitor the model names is checked against the
+// payload as well as against the grounding sources (PLAN.md §16).
+func auditTargets(doors []Door, qlooNames []string) []AuditTarget {
 	limit := workingShortlist
 	if len(doors) < limit {
 		limit = len(doors)
@@ -467,9 +486,60 @@ func auditTargets(doors []Door) []AuditTarget {
 		if door.Enrichment != nil && !door.Enrichment.Unknown {
 			website = door.Enrichment.Website
 		}
-		targets = append(targets, AuditTarget{Door: door.Entity, Tags: door.SharedTags, Website: website})
+		targets = append(targets, AuditTarget{
+			Door:               door.Entity,
+			Tags:               door.SharedTags,
+			Website:            website,
+			QlooIncumbentNames: append([]string(nil), qlooNames...),
+		})
 	}
 	return targets
+}
+
+// qlooNames are the entity names the Qloo payload carries for this run: the
+// resolved seed entities and the resolved skip candidates. A competitor named
+// in prose survives only when a grounding source or one of these names
+// carries it (PLAN.md §16).
+func qlooNames(run *Run, req Request) []string {
+	names := make([]string, 0, len(req.Seed)+len(run.Skip))
+	seen := map[string]bool{}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[strings.ToLower(name)] {
+			return
+		}
+		seen[strings.ToLower(name)] = true
+		names = append(names, name)
+	}
+	for _, entity := range req.Seed {
+		add(entity.Name)
+	}
+	for _, item := range run.Skip {
+		add(item.Entity.Name)
+	}
+	return names
+}
+
+// runEvidenceIDs is the run's evidence set: the ids a cited number may point
+// at. A sentence that cites anything outside this set is dropped
+// (PLAN.md §17, §18).
+func runEvidenceIDs(run *Run, door Door) []string {
+	ids := make([]string, 0, len(run.Evidence)+len(door.EvidenceIDs))
+	seen := map[string]bool{}
+	add := func(id string) {
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	for _, call := range run.Evidence {
+		add(call.ID)
+	}
+	for _, id := range door.EvidenceIDs {
+		add(id)
+	}
+	return ids
 }
 
 func findDoor(doors []Door, id string) (Door, bool) {
