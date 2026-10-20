@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -76,7 +78,7 @@ func poolConfig(dsn string) (*pgxpool.Config, error) {
 
 func (s *Store) hydrate(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT ON (campaign_id) payload
+		SELECT DISTINCT ON (campaign_id) id, campaign_id, payload
 		FROM runs
 		ORDER BY campaign_id, created_at DESC
 	`)
@@ -84,9 +86,11 @@ func (s *Store) hydrate(ctx context.Context) error {
 		return err
 	}
 	defer rows.Close()
+	runSeq, campaignSeq := 0, 0
 	for rows.Next() {
+		var id, campaignID string
 		var payload []byte
-		if err := rows.Scan(&payload); err != nil {
+		if err := rows.Scan(&id, &campaignID, &payload); err != nil {
 			return err
 		}
 		var run orchestrator.Run
@@ -94,8 +98,32 @@ func (s *Store) hydrate(ctx context.Context) error {
 			return err
 		}
 		s.mem.Put(&run)
+		if n, ok := numericSuffix(id, "run-"); ok && n > runSeq {
+			runSeq = n
+		}
+		if n, ok := numericSuffix(campaignID, "cmp-"); ok && n > campaignSeq {
+			campaignSeq = n
+		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	s.mem.ReserveRunSeq(runSeq)
+	s.mem.ReserveCampaignSeq(campaignSeq)
+	return nil
+}
+
+// numericSuffix parses "run-0012" and "cmp-0003" so hydrated ids advance the
+// in-memory counters. Preset campaign ids have a word suffix and are ignored.
+func numericSuffix(id, prefix string) (int, bool) {
+	if !strings.HasPrefix(id, prefix) {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(id, prefix))
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // Bridge is the run store the runner writes. Memory serves the HTTP handlers;
@@ -120,7 +148,10 @@ func (b Bridge) Put(run *orchestrator.Run) {
 	if b.SQL == nil || run == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// A flagship payload carries thousands of heatmap cells and can take
+	// longer than a couple of seconds to update on a hosted Postgres. The
+	// final state write must not be abandoned after the scouting call.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_ = b.SQL.Put(ctx, run)
 }
@@ -215,10 +246,11 @@ func (s *Store) Put(ctx context.Context, run *orchestrator.Run) error {
 		return err
 	}
 	if _, err := s.pool.Exec(ctx, `
-		INSERT INTO campaigns (id, preset_id, mode, city, latitude, longitude, radius_meters, brand_name, seed_json)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-		ON CONFLICT (id) DO NOTHING
-	`, emptyCampaign(run.CampaignID), run.PresetID, string(run.Mode), run.City, run.Point.Lat, run.Point.Lng, run.RadiusMeters, run.Brand.Name, seedJSON); err != nil {
+		INSERT INTO campaigns (id, preset_id, mode, city, latitude, longitude, radius_meters, brand_name, seed_json, account_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+		ON CONFLICT (id) DO UPDATE SET
+			account_id = COALESCE(EXCLUDED.account_id, campaigns.account_id)
+	`, emptyCampaign(run.CampaignID), run.PresetID, string(run.Mode), run.City, run.Point.Lat, run.Point.Lng, run.RadiusMeters, run.Brand.Name, seedJSON, nullableAccount(run.AccountID)); err != nil {
 		return err
 	}
 	_, err = s.pool.Exec(ctx, `
@@ -284,4 +316,11 @@ func nullableJSON(raw json.RawMessage) string {
 		return "{}"
 	}
 	return string(raw)
+}
+
+func nullableAccount(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }

@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/karum-labs/karum-server/internal/auth"
 	"github.com/karum-labs/karum-server/internal/config"
 	"github.com/karum-labs/karum-server/internal/geocode"
 	"github.com/karum-labs/karum-server/internal/grpcclient"
@@ -27,6 +28,7 @@ import (
 	"github.com/karum-labs/karum-server/internal/orchestrator"
 	"github.com/karum-labs/karum-server/internal/persist"
 	"github.com/karum-labs/karum-server/internal/places"
+	"github.com/karum-labs/karum-server/internal/presets"
 	"github.com/karum-labs/karum-server/internal/routes"
 )
 
@@ -160,19 +162,38 @@ func (d runtimeDeps) close() {
 }
 
 func buildDeps(cfg *config.Config) runtimeDeps {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// A hosted Postgres may be scaled to zero. Leave enough room for the wake
+	// before the gateway decides to fall back to memory.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	mem := orchestrator.NewStore()
 	var sql *persist.Store
-	postgresMode := "down"
 	opened, err := persist.Open(ctx, cfg.PostgresDSN)
 	if err != nil {
 		slog.Warn("postgres unavailable; campaigns stay in memory", "error", err)
 	} else {
 		sql = opened
 		mem = opened.Memory()
-		postgresMode = "live"
+	}
+
+	var authService *auth.Service
+	if sql != nil {
+		authService = auth.NewService(sql, cfg.SessionTTL)
+		if err := sql.DeleteExpiredSessions(ctx); err != nil {
+			slog.Warn("could not clean expired sessions", "error", err)
+		}
+		if cfg.JudgeEmail != "" && cfg.JudgePassword != "" {
+			ids := make([]string, 0, len(presets.New().All()))
+			for _, preset := range presets.New().All() {
+				ids = append(ids, presets.CampaignID(preset.ID))
+			}
+			if _, err := authService.EnsureJudge(ctx, "acct-judge", cfg.JudgeEmail, cfg.JudgePassword, cfg.JudgeDisplayName, ids); err != nil {
+				slog.Warn("judge account could not be seeded", "error", err)
+			} else {
+				slog.Info("judge account ready", "email", cfg.JudgeEmail, "campaigns", len(ids))
+			}
+		}
 	}
 
 	clients, err := grpcclient.Dial(cfg.TasteGRPC, cfg.AIGRPC)
@@ -211,12 +232,23 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 			Fixture:  runner,
 			Store:    mem,
 			Geocoder: geocoder,
+			Auth:     authService,
 			Async:    true,
 			Probes: httpapi.Probes{
-				Taste:    httpModeProbe("http://" + cfg.TasteAddr + "/health"),
-				AI:       httpModeProbe("http://" + cfg.AIAddr + "/health"),
-				Redis:    func(context.Context) string { return redisMode(cache) },
-				Postgres: func(context.Context) string { return postgresMode },
+				Taste: httpModeProbe("http://" + cfg.TasteAddr + "/health"),
+				AI:    httpModeProbe("http://" + cfg.AIAddr + "/health"),
+				Redis: func(context.Context) string { return redisMode(cache) },
+				Postgres: func(ctx context.Context) string {
+					if sql == nil {
+						return "down"
+					}
+					pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+					defer cancel()
+					if err := sql.Ping(pingCtx); err != nil {
+						return "down"
+					}
+					return "live"
+				},
 				QlooMode: func() string { return string(cfg.Mode) },
 			},
 		},

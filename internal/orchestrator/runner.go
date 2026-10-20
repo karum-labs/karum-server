@@ -45,6 +45,9 @@ type Request struct {
 	HeatmapRadius    int
 	PointAttribution string
 	FormattedAddress string
+	// AccountID is the optional judge account attributed to the run. Empty
+	// keeps the anonymous demo path unchanged.
+	AccountID string
 	// ID is set by the HTTP layer so a job id exists before the pipeline
 	// starts and an abort can cancel it. Empty lets the runner allocate one.
 	ID string

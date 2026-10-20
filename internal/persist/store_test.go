@@ -23,6 +23,27 @@ func TestNeonURIParses(t *testing.T) {
 	}
 }
 
+func TestNumericSuffixReadsHydratedCounters(t *testing.T) {
+	cases := []struct {
+		id     string
+		prefix string
+		want   int
+		ok     bool
+	}{
+		{id: "run-0012", prefix: "run-", want: 12, ok: true},
+		{id: "cmp-0003", prefix: "cmp-", want: 3, ok: true},
+		{id: "run-pg-1", prefix: "run-", ok: false},
+		{id: "cmp-brooklyn-flagship", prefix: "cmp-", ok: false},
+		{id: "run-", prefix: "run-", ok: false},
+	}
+	for _, tc := range cases {
+		got, ok := numericSuffix(tc.id, tc.prefix)
+		if got != tc.want || ok != tc.ok {
+			t.Fatalf("numericSuffix(%q, %q) = (%d, %v), want (%d, %v)", tc.id, tc.prefix, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestMigrationsExist(t *testing.T) {
 	raw, err := migrationFS.ReadFile("migrations/0001_init.sql")
 	if err != nil {

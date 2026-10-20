@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/karum-labs/karum-server/internal/auth"
 	"github.com/karum-labs/karum-server/internal/geocode"
 	"github.com/karum-labs/karum-server/internal/orchestrator"
 	"github.com/karum-labs/karum-server/internal/presets"
@@ -87,6 +88,9 @@ func (h *Handler) postScout(c *gin.Context) {
 		writeError(c, http.StatusServiceUnavailable, "upstream", err.Error())
 		return
 	}
+	if account, ok := auth.Current(c); ok {
+		built.AccountID = account.ID
+	}
 	built.ID = h.store.NextID()
 	if built.CampaignID == "" {
 		if hasPreset && !req.FreeEntry {
@@ -96,6 +100,7 @@ func (h *Handler) postScout(c *gin.Context) {
 			h.store.UpsertCampaign(orchestrator.CampaignRecord{
 				ID: built.CampaignID, Mode: built.Mode, City: built.City, Point: built.Point,
 				RadiusMeters: built.RadiusMeters, BrandName: built.Brand.Name, Seed: built.Seed,
+				AccountID: built.AccountID,
 			})
 		}
 	}

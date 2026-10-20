@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/karum-labs/karum-server/internal/auth"
 	"github.com/karum-labs/karum-server/internal/config"
 	"github.com/karum-labs/karum-server/internal/geocode"
 	"github.com/karum-labs/karum-server/internal/orchestrator"
@@ -41,9 +42,12 @@ type Dependencies struct {
 	Geocoder geocode.Geocoder
 	Catalog  *presets.Catalog
 	Limiter  *resilience.Limiter
-	Idem     *resilience.Idempotency
-	Renderer Renderer
-	Probes   Probes
+	// LoginLimiter bounds password attempts separately from scout requests.
+	LoginLimiter *resilience.Limiter
+	Idem         *resilience.Idempotency
+	Renderer     Renderer
+	Auth         *auth.Service
+	Probes       Probes
 	// Async starts the pipeline in the background and returns the job id
 	// immediately. Tests leave it false so GET sees a finished run.
 	Async bool
@@ -51,18 +55,20 @@ type Dependencies struct {
 
 // Handler serves the scout API.
 type Handler struct {
-	cfg      *config.Config
-	live     *orchestrator.Runner
-	fixture  *orchestrator.Runner
-	store    *orchestrator.Store
-	geocoder geocode.Geocoder
-	catalog  *presets.Catalog
-	limiter  *resilience.Limiter
-	idem     *resilience.Idempotency
-	renderer Renderer
-	probes   Probes
-	async    bool
-	cancels  cancelRegistry
+	cfg          *config.Config
+	live         *orchestrator.Runner
+	fixture      *orchestrator.Runner
+	store        *orchestrator.Store
+	geocoder     geocode.Geocoder
+	catalog      *presets.Catalog
+	limiter      *resilience.Limiter
+	loginLimiter *resilience.Limiter
+	idem         *resilience.Idempotency
+	renderer     Renderer
+	auth         *auth.Service
+	probes       Probes
+	async        bool
+	cancels      cancelRegistry
 }
 
 func newHandler(cfg *config.Config, deps Dependencies) *Handler {
@@ -75,6 +81,9 @@ func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 	if deps.Limiter == nil {
 		deps.Limiter = resilience.NewLimiter(20, 40, 100, 200)
 	}
+	if deps.LoginLimiter == nil {
+		deps.LoginLimiter = resilience.NewLimiter(0.2, 5, 20, 40)
+	}
 	if deps.Renderer == nil {
 		deps.Renderer = stockRenderer{}
 	}
@@ -84,7 +93,8 @@ func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 	return &Handler{
 		cfg: cfg, live: deps.Live, fixture: deps.Fixture, store: deps.Store,
 		geocoder: deps.Geocoder, catalog: deps.Catalog, limiter: deps.Limiter,
-		idem: deps.Idem, renderer: deps.Renderer, probes: deps.Probes, async: deps.Async,
+		loginLimiter: deps.LoginLimiter,
+		idem:         deps.Idem, renderer: deps.Renderer, auth: deps.Auth, probes: deps.Probes, async: deps.Async,
 	}
 }
 

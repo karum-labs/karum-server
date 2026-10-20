@@ -35,6 +35,7 @@ func (r *Runner) blank(req Request) *Run {
 		TraceID:          req.TraceID,
 		PointAttribution: req.PointAttribution,
 		FormattedAddress: req.FormattedAddress,
+		AccountID:        req.AccountID,
 	}
 }
 

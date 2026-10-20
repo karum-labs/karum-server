@@ -26,10 +26,28 @@ type Point struct {
 // SeedEntity is one confirmed seed row. Ids are resolved by the seed builder
 // before a run starts, so the runner never confirms interactively.
 type SeedEntity struct {
-	ID   string
-	Type string
-	Name string
-	City string
+	ID    string
+	Type  string
+	Name  string
+	City  string
+	Place *PlaceFacts
+}
+
+// PlaceFacts is the recorded Qloo place block carried beside a venue row
+// (PLAN.md §34). It fills the card when the Places read is unavailable.
+type PlaceFacts struct {
+	Address  string
+	Website  string
+	Phone    string
+	Hours    string
+	IsClosed bool
+	Lat      float64
+	Lng      float64
+}
+
+// HasLocation reports whether the recorded place block carries a usable point.
+func (p *PlaceFacts) HasLocation() bool {
+	return p != nil && (p.Lat != 0 || p.Lng != 0)
 }
 
 // Tag is one verified tag URN.
@@ -252,6 +270,7 @@ type Run struct {
 	RadiusMeters     int
 	PointAttribution string
 	FormattedAddress string
+	AccountID        string
 	Heatmap          *HeatmapView
 	Route            *RouteView
 	QlooPayload      json.RawMessage
@@ -304,7 +323,15 @@ type HeatmapView struct {
 	Anchors    []SeedEntity
 	Cells      []HeatmapCell
 	CellCount  int
-	Localities int
+	Localities []LocalityPolygon
+}
+
+// LocalityPolygon is one locality boundary the map fills behind the doors.
+type LocalityPolygon struct {
+	Name     string
+	Affinity float64
+	Centroid *Point
+	Polygon  []Point
 }
 
 // RouteView is the field route, or the reason it was not built.
@@ -338,6 +365,7 @@ type CampaignRecord struct {
 	RadiusMeters int
 	BrandName    string
 	Seed         []SeedEntity
+	AccountID    string
 }
 
 // SeedQuery is a raw brand query resolved only when the request has no

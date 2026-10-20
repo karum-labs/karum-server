@@ -27,6 +27,8 @@ type HealthResponse struct {
 	Mode config.Mode `json:"mode"`
 	// Version is the build version.
 	Version string `json:"version"`
+	// HackathonMode is the gateway-owned flag the login screen reads.
+	HackathonMode bool `json:"hackathon_mode"`
 	// UptimeSeconds is how long this process has been running.
 	UptimeSeconds int64 `json:"uptime_seconds"`
 	// Time is when this health payload was generated.
@@ -81,7 +83,7 @@ func corsMiddleware(allowed []string) gin.HandlerFunc {
 			if requested := c.GetHeader("Access-Control-Request-Headers"); requested != "" {
 				c.Header("Access-Control-Allow-Headers", requested)
 			} else {
-				c.Header("Access-Control-Allow-Headers", "Accept, Content-Type, Idempotency-Key")
+				c.Header("Access-Control-Allow-Headers", "Accept, Content-Type, Idempotency-Key, Authorization")
 			}
 			c.Header("Access-Control-Max-Age", "600")
 		}
@@ -131,6 +133,7 @@ func registerRoutes(r *gin.Engine, h *Handler) {
 			Status:        "ok",
 			Mode:          h.cfg.Mode,
 			Version:       h.cfg.Version,
+			HackathonMode: h.cfg.HackathonMode,
 			UptimeSeconds: int64(time.Since(started).Seconds()),
 			Time:          time.Now().UTC(),
 			Dependencies:  h.dependencies(c.Request.Context()),
@@ -146,14 +149,19 @@ func registerRoutes(r *gin.Engine, h *Handler) {
 				"status":  "ok",
 			})
 		})
-		v1.POST("/scout", h.postScout)
-		v1.GET("/scout/:id", h.getScout)
-		v1.GET("/scout/:id/events", h.getEvents)
-		v1.POST("/scout/:id/abort", h.postAbort)
-		v1.POST("/scout/:id/drafts/run-sheet", h.postRunSheet)
-		v1.POST("/scout/:id/drafts/site-brief", h.postSiteBrief)
-		v1.POST("/scout/:id/drafts/doors/:doorID", h.postDoorPitch)
-		v1.GET("/campaigns/:id", h.getCampaign)
+		v1.POST("/auth/login", h.postLogin)
+		v1.POST("/auth/judge", h.postJudgeLogin)
+		v1.GET("/auth/me", h.requiredAuth(), h.getMe)
+		v1.POST("/auth/logout", h.requiredAuth(), h.postLogout)
+		v1.POST("/prewarm", h.requiredAuth(), h.postPrewarm)
+		v1.POST("/scout", h.optionalAuth(), h.postScout)
+		v1.GET("/scout/:id", h.optionalAuth(), h.getScout)
+		v1.GET("/scout/:id/events", h.optionalAuth(), h.getEvents)
+		v1.POST("/scout/:id/abort", h.optionalAuth(), h.postAbort)
+		v1.POST("/scout/:id/drafts/run-sheet", h.optionalAuth(), h.postRunSheet)
+		v1.POST("/scout/:id/drafts/site-brief", h.optionalAuth(), h.postSiteBrief)
+		v1.POST("/scout/:id/drafts/doors/:doorID", h.optionalAuth(), h.postDoorPitch)
+		v1.GET("/campaigns/:id", h.optionalAuth(), h.getCampaign)
 	}
 
 	r.NoRoute(func(c *gin.Context) {

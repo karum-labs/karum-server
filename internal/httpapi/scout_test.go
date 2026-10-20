@@ -41,12 +41,33 @@ func (t *httpTaste) ScoutDoors(ctx context.Context, _ orchestrator.ScoutRequest)
 	}
 	return orchestrator.ScoutResult{
 		Doors: []orchestrator.Door{{
-			Entity:      orchestrator.SeedEntity{ID: "d-1", Type: "urn:entity:place", Name: name},
+			Entity: orchestrator.SeedEntity{
+				ID: "d-1", Type: "urn:entity:place", Name: name,
+				Place: &orchestrator.PlaceFacts{
+					Address: "1100 E 5th St, Austin, TX",
+					Website: "https://example.com/door",
+					Hours:   "Mon 17:00-23:00",
+					Phone:   "+1 512 555 0100",
+					Lat:     30.26, Lng: -97.73,
+				},
+			},
 			Rank:        1,
 			Affinity:    orchestrator.SubScore{Name: "cultural_affinity", Value: 1, RawValue: 0.91},
 			EvidenceIDs: []string{"ev-0001"},
 			Lat:         30.26,
 			Lng:         -97.73,
+		}},
+		Skip: []orchestrator.SkipItem{{
+			Entity: orchestrator.SeedEntity{
+				ID: "d-2", Type: "urn:entity:place", Name: "Below Floor",
+				Place: &orchestrator.PlaceFacts{
+					Address: "1200 E 6th St, Austin, TX",
+					Lat:     30.27, Lng: -97.72,
+				},
+			},
+			Reason:      "low_affinity",
+			RawAffinity: 0.2,
+			Floor:       0.4,
 		}},
 		Evidence: []orchestrator.EvidenceCall{{ID: "ev-0001", Endpoint: "/v2/insights", ResultCount: 1}},
 	}, nil
@@ -405,6 +426,15 @@ func (payloadHeatmap) GetLocalityHeatmap(context.Context, orchestrator.HeatmapQu
 		Cells: []orchestrator.HeatmapCell{{
 			Lat: 40.71, Lng: -73.96, Affinity: 0.8, AffinityRank: 3, Popularity: 0.4, Geohash: "dr5ru",
 		}},
+		Localities: []orchestrator.LocalityPolygon{{
+			Name: "Williamsburg", Affinity: 0.8,
+			Centroid: &orchestrator.Point{Lat: 40.71, Lng: -73.96},
+			Polygon: []orchestrator.Point{
+				{Lat: 40.70, Lng: -73.97},
+				{Lat: 40.72, Lng: -73.97},
+				{Lat: 40.72, Lng: -73.95},
+			},
+		}},
 	}, nil
 }
 
@@ -496,6 +526,29 @@ func TestCampaignPayloadCarriesMenuFindingsAndHeatmapCells(t *testing.T) {
 	cell, _ := cells[0].(map[string]any)
 	if cell["lat"] != 40.71 || cell["lng"] != -73.96 || cell["affinity"] != 0.8 || cell["affinity_rank"] != float64(3) {
 		t.Fatalf("cell = %+v", cell)
+	}
+	localities, _ := heatmap["locality_polygons"].([]any)
+	if len(localities) != 1 {
+		t.Fatalf("locality_polygons = %+v", heatmap["locality_polygons"])
+	}
+	locality, _ := localities[0].(map[string]any)
+	polygon, _ := locality["polygon"].([]any)
+	if locality["name"] != "Williamsburg" || len(polygon) != 3 {
+		t.Fatalf("locality = %+v", locality)
+	}
+	place, ok := door["place"].(map[string]any)
+	if !ok || place["address"] != "1100 E 5th St, Austin, TX" ||
+		place["website"] != "https://example.com/door" ||
+		place["lat"] != 30.26 || place["lng"] != -97.73 {
+		t.Fatalf("door place = %+v", door["place"])
+	}
+	skips, _ := body["skip_list"].([]any)
+	if len(skips) != 1 {
+		t.Fatalf("skip_list = %+v", body["skip_list"])
+	}
+	skip, _ := skips[0].(map[string]any)
+	if skip["lat"] != 30.27 || skip["lng"] != -97.72 {
+		t.Fatalf("skip point = %+v", skip)
 	}
 }
 

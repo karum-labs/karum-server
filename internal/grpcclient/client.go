@@ -29,11 +29,20 @@ type Clients struct {
 // Dial opens insecure connections on the compose network. TLS terminates at
 // the public proxy, not between these processes.
 func Dial(tasteAddr, aiAddr string) (*Clients, error) {
-	tasteConn, err := grpc.NewClient(tasteAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Heatmap responses for a flagship run carry thousands of cells and can
+	// exceed the 4 MiB gRPC default; the map needs the full recorded layer.
+	maxReceive := grpc.MaxCallRecvMsgSize(16 << 20)
+	tasteConn, err := grpc.NewClient(tasteAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(maxReceive),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("dial taste: %w", err)
 	}
-	aiConn, err := grpc.NewClient(aiAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	aiConn, err := grpc.NewClient(aiAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(maxReceive),
+	)
 	if err != nil {
 		_ = tasteConn.Close()
 		return nil, fmt.Errorf("dial ai: %w", err)
@@ -101,14 +110,21 @@ func (c *Clients) ScoutDoors(ctx context.Context, req orchestrator.ScoutRequest)
 		Evidence:     evidence(resp.GetEvidence()),
 	}
 	for _, door := range resp.GetDoors() {
+		entity := fromEntity(door.GetEntity())
+		lat, lng := 0.0, 0.0
+		if entity.Place.HasLocation() {
+			lat, lng = entity.Place.Lat, entity.Place.Lng
+		}
 		out.Doors = append(out.Doors, orchestrator.Door{
-			Entity:               fromEntity(door.GetEntity()),
+			Entity:               entity,
 			Rank:                 int(door.GetRank()),
 			Affinity:             fromScore(door.GetAffinity()),
 			DemographicAlignment: fromScorePtr(door.GetDemographicAlignment()),
 			SharedTags:           fromTags(door.GetSharedTags()),
 			EvidenceIDs:          append([]string(nil), door.GetEvidenceIds()...),
 			OutsideCity:          door.GetOutsideCity(),
+			Lat:                  lat,
+			Lng:                  lng,
 		})
 	}
 	for _, item := range resp.GetSkipList() {
@@ -134,11 +150,10 @@ func (c *Clients) GetLocalityHeatmap(ctx context.Context, req orchestrator.Heatm
 		return orchestrator.HeatmapView{}, rpcErr(err)
 	}
 	view := orchestrator.HeatmapView{
-		Available:  resp.GetAvailable(),
-		Reason:     firstNonEmpty(resp.GetUnavailableReason(), resp.GetErrorMessage()),
-		Corridors:  append([]string(nil), resp.GetCorridors()...),
-		CellCount:  len(resp.GetCells()),
-		Localities: len(resp.GetLocalities()),
+		Available: resp.GetAvailable(),
+		Reason:    firstNonEmpty(resp.GetUnavailableReason(), resp.GetErrorMessage()),
+		Corridors: append([]string(nil), resp.GetCorridors()...),
+		CellCount: len(resp.GetCells()),
 	}
 	for _, anchor := range resp.GetAnchors() {
 		view.Anchors = append(view.Anchors, fromEntity(anchor))
@@ -153,6 +168,21 @@ func (c *Clients) GetLocalityHeatmap(ctx context.Context, req orchestrator.Heatm
 			Popularity:   cell.GetPopularity(),
 			Geohash:      cell.GetGeohash(),
 		})
+	}
+	for _, locality := range resp.GetLocalities() {
+		item := orchestrator.LocalityPolygon{
+			Name:     locality.GetName(),
+			Affinity: locality.GetAffinity(),
+		}
+		if centroid := locality.GetCentroid(); centroid != nil {
+			item.Centroid = &orchestrator.Point{Lat: centroid.GetLatitude(), Lng: centroid.GetLongitude()}
+		}
+		for _, vertex := range locality.GetPolygon() {
+			item.Polygon = append(item.Polygon, orchestrator.Point{
+				Lat: vertex.GetLatitude(), Lng: vertex.GetLongitude(),
+			})
+		}
+		view.Localities = append(view.Localities, item)
 	}
 	return view, nil
 }
@@ -343,7 +373,21 @@ func point(p orchestrator.Point) *commonv1.GeoPoint {
 }
 
 func entity(e orchestrator.SeedEntity) *commonv1.EntityRef {
-	return &commonv1.EntityRef{Id: e.ID, Type: e.Type, Name: e.Name, City: e.City}
+	return &commonv1.EntityRef{Id: e.ID, Type: e.Type, Name: e.Name, City: e.City, Place: placeFacts(e.Place)}
+}
+
+func placeFacts(p *orchestrator.PlaceFacts) *commonv1.PlaceFacts {
+	if p == nil {
+		return nil
+	}
+	var location *commonv1.GeoPoint
+	if p.Lat != 0 || p.Lng != 0 {
+		location = &commonv1.GeoPoint{Latitude: p.Lat, Longitude: p.Lng}
+	}
+	return &commonv1.PlaceFacts{
+		Address: p.Address, Website: p.Website, Phone: p.Phone,
+		Hours: p.Hours, IsClosed: p.IsClosed, Location: location,
+	}
 }
 
 func entities(items []orchestrator.SeedEntity) []*commonv1.EntityRef {
@@ -358,7 +402,25 @@ func fromEntity(e *commonv1.EntityRef) orchestrator.SeedEntity {
 	if e == nil {
 		return orchestrator.SeedEntity{}
 	}
-	return orchestrator.SeedEntity{ID: e.GetId(), Type: e.GetType(), Name: e.GetName(), City: e.GetCity()}
+	return orchestrator.SeedEntity{
+		ID: e.GetId(), Type: e.GetType(), Name: e.GetName(), City: e.GetCity(),
+		Place: fromPlaceFacts(e.GetPlace()),
+	}
+}
+
+func fromPlaceFacts(p *commonv1.PlaceFacts) *orchestrator.PlaceFacts {
+	if p == nil {
+		return nil
+	}
+	out := &orchestrator.PlaceFacts{
+		Address: p.GetAddress(), Website: p.GetWebsite(), Phone: p.GetPhone(),
+		Hours: p.GetHours(), IsClosed: p.GetIsClosed(),
+	}
+	if location := p.GetLocation(); location != nil {
+		out.Lat = location.GetLatitude()
+		out.Lng = location.GetLongitude()
+	}
+	return out
 }
 
 func urns(values []string) []*commonv1.Tag {

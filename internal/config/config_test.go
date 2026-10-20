@@ -100,3 +100,51 @@ func TestFromEnvReadsOverrides(t *testing.T) {
 		t.Errorf("TasteAddr = %q, want taste:9091", cfg.TasteAddr)
 	}
 }
+
+func TestFromEnvReadsHackathonJudgeSettings(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
+	t.Setenv("HACKATHON_MODE", "true")
+	t.Setenv("JUDGE_EMAIL", "judge@karum.demo")
+	t.Setenv("JUDGE_PASSWORD", "secret")
+	t.Setenv("JUDGE_DISPLAY_NAME", "Demo Judge")
+	t.Setenv("SESSION_TTL", "24h")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+	if !cfg.HackathonMode {
+		t.Error("HackathonMode = false, want true")
+	}
+	if cfg.JudgeEmail != "judge@karum.demo" || cfg.JudgePassword != "secret" {
+		t.Errorf("judge = %q/%q, want configured values", cfg.JudgeEmail, cfg.JudgePassword)
+	}
+	if cfg.JudgeDisplayName != "Demo Judge" {
+		t.Errorf("JudgeDisplayName = %q, want Demo Judge", cfg.JudgeDisplayName)
+	}
+	if cfg.SessionTTL != 24*time.Hour {
+		t.Errorf("SessionTTL = %v, want 24h", cfg.SessionTTL)
+	}
+}
+
+func TestFromEnvRequiresJudgeCredentialsInHackathonMode(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
+	t.Setenv("HACKATHON_MODE", "true")
+	t.Setenv("JUDGE_EMAIL", "")
+	t.Setenv("JUDGE_PASSWORD", "")
+
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("FromEnv() error = nil, want error for missing judge credentials")
+	}
+}
+
+func TestFromEnvRejectsHalfJudgeCredentials(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://karum:karum@db.example:5432/karum")
+	t.Setenv("HACKATHON_MODE", "false")
+	t.Setenv("JUDGE_EMAIL", "judge@karum.demo")
+	t.Setenv("JUDGE_PASSWORD", "")
+
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("FromEnv() error = nil, want error for half-configured judge")
+	}
+}

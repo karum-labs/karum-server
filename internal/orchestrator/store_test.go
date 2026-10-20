@@ -48,3 +48,22 @@ func TestNewestReadyIgnoresNonTerminalAndFreeEntryRuns(t *testing.T) {
 		t.Fatalf("NewestReady() = %s, want no preset run", got.ID)
 	}
 }
+
+func TestReservedSequencesContinueAfterHydrate(t *testing.T) {
+	store := NewStore()
+	store.ReserveRunSeq(12)
+	store.ReserveCampaignSeq(3)
+
+	if got := store.NextID(); got != "run-0013" {
+		t.Fatalf("NextID() = %s, want run-0013", got)
+	}
+	if got := store.NextCampaignID(); got != "cmp-0004" {
+		t.Fatalf("NextCampaignID() = %s, want cmp-0004", got)
+	}
+
+	// A lower reservation must never move a counter backwards.
+	store.ReserveRunSeq(2)
+	if got := store.NextID(); got != "run-0014" {
+		t.Fatalf("NextID() after lower reserve = %s, want run-0014", got)
+	}
+}

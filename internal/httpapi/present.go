@@ -50,6 +50,7 @@ type doorBody struct {
 	Rank        int          `json:"rank"`
 	Scores      scoreSetBody `json:"scores"`
 	SharedTags  []tagBody    `json:"shared_tags"`
+	Place       *placeBody   `json:"place,omitempty"`
 	Enrichment  *enrichBody  `json:"enrichment,omitempty"`
 	Compare     *compareBody `json:"compare,omitempty"`
 	Pitch       *pitchBody   `json:"pitch,omitempty"`
@@ -106,6 +107,17 @@ type enrichBody struct {
 	Attribution string  `json:"attribution,omitempty"`
 }
 
+// placeBody is the recorded Qloo place block; it is not a Google Places read.
+type placeBody struct {
+	Address  string  `json:"address,omitempty"`
+	Website  string  `json:"website,omitempty"`
+	Phone    string  `json:"phone,omitempty"`
+	Hours    string  `json:"hours,omitempty"`
+	IsClosed bool    `json:"is_closed,omitempty"`
+	Lat      float64 `json:"lat,omitempty"`
+	Lng      float64 `json:"lng,omitempty"`
+}
+
 type compareBody struct {
 	Available bool      `json:"available"`
 	Reason    string    `json:"reason,omitempty"`
@@ -133,6 +145,8 @@ type skipBody struct {
 	RawAffinity     float64 `json:"raw_affinity,omitempty"`
 	Floor           float64 `json:"floor,omitempty"`
 	CompetitorCount int     `json:"competitor_count,omitempty"`
+	Lat             float64 `json:"lat,omitempty"`
+	Lng             float64 `json:"lng,omitempty"`
 }
 
 type evidenceBody struct {
@@ -151,13 +165,14 @@ type baselineBody struct {
 }
 
 type heatmapBody struct {
-	Available  bool          `json:"available"`
-	Reason     string        `json:"reason,omitempty"`
-	Corridors  []string      `json:"corridors,omitempty"`
-	Anchors    []string      `json:"anchors,omitempty"`
-	Cells      []heatmapCell `json:"cells,omitempty"`
-	CellCount  int           `json:"cell_count"`
-	Localities int           `json:"localities"`
+	Available        bool           `json:"available"`
+	Reason           string         `json:"reason,omitempty"`
+	Corridors        []string       `json:"corridors,omitempty"`
+	Anchors          []string       `json:"anchors,omitempty"`
+	Cells            []heatmapCell  `json:"cells,omitempty"`
+	CellCount        int            `json:"cell_count"`
+	Localities       int            `json:"localities"`
+	LocalityPolygons []localityBody `json:"locality_polygons,omitempty"`
 }
 
 type heatmapCell struct {
@@ -167,6 +182,13 @@ type heatmapCell struct {
 	AffinityRank int     `json:"affinity_rank,omitempty"`
 	Popularity   float64 `json:"popularity,omitempty"`
 	Geohash      string  `json:"geohash,omitempty"`
+}
+
+type localityBody struct {
+	Name     string      `json:"name"`
+	Affinity float64     `json:"affinity,omitempty"`
+	Centroid *pointBody  `json:"centroid,omitempty"`
+	Polygon  []pointBody `json:"polygon,omitempty"`
 }
 
 type routeBody struct {
@@ -233,10 +255,15 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 		out.Doors = []doorBody{}
 	}
 	for _, skip := range run.Skip {
-		out.SkipList = append(out.SkipList, skipBody{
+		body := skipBody{
 			ID: skip.Entity.ID, Name: skip.Entity.Name, Reason: skip.Reason,
 			RawAffinity: skip.RawAffinity, Floor: skip.Floor, CompetitorCount: skip.CompetitorCount,
-		})
+		}
+		if skip.Entity.Place.HasLocation() {
+			body.Lat = skip.Entity.Place.Lat
+			body.Lng = skip.Entity.Place.Lng
+		}
+		out.SkipList = append(out.SkipList, body)
 	}
 	if out.SkipList == nil {
 		out.SkipList = []skipBody{}
@@ -263,7 +290,7 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 		body := &heatmapBody{
 			Available: run.Heatmap.Available, Reason: run.Heatmap.Reason,
 			Corridors: run.Heatmap.Corridors, CellCount: run.Heatmap.CellCount,
-			Localities: run.Heatmap.Localities,
+			Localities: len(run.Heatmap.Localities),
 		}
 		for _, anchor := range run.Heatmap.Anchors {
 			body.Anchors = append(body.Anchors, anchor.Name)
@@ -274,6 +301,16 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 				AffinityRank: cell.AffinityRank, Popularity: cell.Popularity,
 				Geohash: cell.Geohash,
 			})
+		}
+		for _, locality := range run.Heatmap.Localities {
+			item := localityBody{Name: locality.Name, Affinity: locality.Affinity}
+			if locality.Centroid != nil {
+				item.Centroid = &pointBody{Lat: locality.Centroid.Lat, Lng: locality.Centroid.Lng}
+			}
+			for _, vertex := range locality.Polygon {
+				item.Polygon = append(item.Polygon, pointBody{Lat: vertex.Lat, Lng: vertex.Lng})
+			}
+			body.LocalityPolygons = append(body.LocalityPolygons, item)
 		}
 		out.Heatmap = body
 	}
@@ -328,6 +365,14 @@ func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrat
 			Website: door.Enrichment.Website, OpenStatus: door.Enrichment.OpenStatus,
 			Unknown: door.Enrichment.Unknown, Lat: door.Enrichment.Lat, Lng: door.Enrichment.Lng,
 			Attribution: door.Enrichment.Attribution,
+		}
+	}
+	if door.Entity.Place != nil {
+		body.Place = &placeBody{
+			Address: door.Entity.Place.Address, Website: door.Entity.Place.Website,
+			Phone: door.Entity.Place.Phone, Hours: door.Entity.Place.Hours,
+			IsClosed: door.Entity.Place.IsClosed,
+			Lat:      door.Entity.Place.Lat, Lng: door.Entity.Place.Lng,
 		}
 	}
 	if door.Compare != nil {

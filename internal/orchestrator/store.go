@@ -73,6 +73,26 @@ func (s *Store) NextCampaignID() string {
 	return fmt.Sprintf("cmp-%04d", s.campaignSeq)
 }
 
+// ReserveRunSeq advances the run counter past ids loaded from Postgres. A
+// restart must not reuse run-0001 and overwrite the snapshot already there.
+func (s *Store) ReserveRunSeq(seq int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if seq > s.seq {
+		s.seq = seq
+	}
+}
+
+// ReserveCampaignSeq advances the free-entry campaign counter past ids loaded
+// from Postgres so a restart cannot overwrite a stored campaign.
+func (s *Store) ReserveCampaignSeq(seq int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if seq > s.campaignSeq {
+		s.campaignSeq = seq
+	}
+}
+
 // Put stores a snapshot of a run. Callers may keep mutating the struct they
 // passed in; readers see the snapshot.
 func (s *Store) Put(run *Run) {

@@ -63,6 +63,19 @@ type Config struct {
 	// local development origins (localhost and 127.0.0.1 on any port).
 	ClientOrigins []string
 
+	// HackathonMode enables the preseeded judge banner and the credential-free
+	// judge session. It never turns the public demo into a login wall.
+	HackathonMode bool
+	// JudgeEmail is the seeded judge account's email.
+	JudgeEmail string
+	// JudgePassword is the plaintext secret used to seed/rotate the judge
+	// account. It is bcrypt-hashed before it reaches Postgres and never logged.
+	JudgePassword string
+	// JudgeDisplayName is the name shown in the account menu.
+	JudgeDisplayName string
+	// SessionTTL is how long an opaque session remains valid.
+	SessionTTL time.Duration
+
 	// PlacesAPIKey enriches doors. Empty leaves enrichment unknown.
 	PlacesAPIKey string
 	// RoutesAPIKey orders the field route. Empty skips routing.
@@ -84,27 +97,37 @@ type Config struct {
 // Other settings fall back to local defaults when unset.
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		Port:            getenvInt("GATEWAY_PORT", 8080),
-		Mode:            Mode(getenv("GATEWAY_MODE", string(ModeFixture))),
-		Version:         getenv("GATEWAY_VERSION", "dev"),
-		TasteAddr:       getenv("TASTE_ADDR", "localhost:8081"),
-		AIAddr:          getenv("AI_ADDR", "localhost:8082"),
-		TasteGRPC:       getenv("TASTE_GRPC_ADDR", "localhost:9091"),
-		AIGRPC:          getenv("AI_GRPC_ADDR", "localhost:9092"),
-		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
-		PostgresDSN:     os.Getenv("POSTGRES_DSN"),
-		ReadTimeout:     getenvDuration("GATEWAY_READ_TIMEOUT", 15*time.Second),
-		WriteTimeout:    getenvDuration("GATEWAY_WRITE_TIMEOUT", 0),
-		ShutdownTimeout: getenvDuration("GATEWAY_SHUTDOWN_TIMEOUT", 10*time.Second),
-		ClientOrigins:   splitList(os.Getenv("CLIENT_ORIGIN")),
-		PlacesAPIKey:    os.Getenv("GOOGLE_PLACES_API_KEY"),
-		RoutesAPIKey:    os.Getenv("GOOGLE_ROUTES_API_KEY"),
-		GeocodeAPIKey:   firstNonEmpty(os.Getenv("GOOGLE_GEOCODING_API_KEY"), os.Getenv("GOOGLE_PLACES_API_KEY")),
-		TasteTimeout:    getenvDuration("GATEWAY_TASTE_TIMEOUT", 8*time.Second),
-		AITimeout:       getenvDuration("GATEWAY_AI_TIMEOUT", 30*time.Second),
-		PlacesTimeout:   getenvDuration("GATEWAY_PLACES_TIMEOUT", 5*time.Second),
-		RoutesTimeout:   getenvDuration("GATEWAY_ROUTES_TIMEOUT", 5*time.Second),
+		Port:             getenvInt("GATEWAY_PORT", 8080),
+		Mode:             Mode(getenv("GATEWAY_MODE", string(ModeFixture))),
+		Version:          getenv("GATEWAY_VERSION", "dev"),
+		TasteAddr:        getenv("TASTE_ADDR", "localhost:8081"),
+		AIAddr:           getenv("AI_ADDR", "localhost:8082"),
+		TasteGRPC:        getenv("TASTE_GRPC_ADDR", "localhost:9091"),
+		AIGRPC:           getenv("AI_GRPC_ADDR", "localhost:9092"),
+		RedisAddr:        getenv("REDIS_ADDR", "localhost:6379"),
+		PostgresDSN:      os.Getenv("POSTGRES_DSN"),
+		ReadTimeout:      getenvDuration("GATEWAY_READ_TIMEOUT", 15*time.Second),
+		WriteTimeout:     getenvDuration("GATEWAY_WRITE_TIMEOUT", 0),
+		ShutdownTimeout:  getenvDuration("GATEWAY_SHUTDOWN_TIMEOUT", 10*time.Second),
+		ClientOrigins:    splitList(os.Getenv("CLIENT_ORIGIN")),
+		PlacesAPIKey:     os.Getenv("GOOGLE_PLACES_API_KEY"),
+		RoutesAPIKey:     os.Getenv("GOOGLE_ROUTES_API_KEY"),
+		GeocodeAPIKey:    firstNonEmpty(os.Getenv("GOOGLE_GEOCODING_API_KEY"), os.Getenv("GOOGLE_PLACES_API_KEY")),
+		TasteTimeout:     getenvDuration("GATEWAY_TASTE_TIMEOUT", 8*time.Second),
+		AITimeout:        getenvDuration("GATEWAY_AI_TIMEOUT", 30*time.Second),
+		PlacesTimeout:    getenvDuration("GATEWAY_PLACES_TIMEOUT", 5*time.Second),
+		RoutesTimeout:    getenvDuration("GATEWAY_ROUTES_TIMEOUT", 5*time.Second),
+		JudgeEmail:       strings.TrimSpace(os.Getenv("JUDGE_EMAIL")),
+		JudgePassword:    os.Getenv("JUDGE_PASSWORD"),
+		JudgeDisplayName: firstNonEmpty(os.Getenv("JUDGE_DISPLAY_NAME"), "Karum Judge"),
+		SessionTTL:       getenvDuration("SESSION_TTL", 7*24*time.Hour),
 	}
+
+	hackathonMode, err := getenvBool("HACKATHON_MODE", false)
+	if err != nil {
+		return nil, err
+	}
+	cfg.HackathonMode = hackathonMode
 
 	switch cfg.Mode {
 	case ModeLive, ModeFixture, ModeDegraded:
@@ -118,6 +141,19 @@ func FromEnv() (*Config, error) {
 
 	if cfg.PostgresDSN == "" {
 		return nil, fmt.Errorf("POSTGRES_DSN is required")
+	}
+
+	if (cfg.JudgeEmail == "") != (cfg.JudgePassword == "") {
+		return nil, fmt.Errorf("JUDGE_EMAIL and JUDGE_PASSWORD must be set together")
+	}
+	if cfg.HackathonMode && cfg.JudgeEmail == "" {
+		return nil, fmt.Errorf("HACKATHON_MODE=true requires JUDGE_EMAIL and JUDGE_PASSWORD")
+	}
+	if len(cfg.JudgePassword) > 72 {
+		return nil, fmt.Errorf("JUDGE_PASSWORD must be at most 72 bytes (bcrypt limit)")
+	}
+	if cfg.SessionTTL <= 0 {
+		cfg.SessionTTL = 7 * 24 * time.Hour
 	}
 
 	return cfg, nil
@@ -183,4 +219,17 @@ func getenvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// getenvBool parses a boolean environment variable, or returns fallback.
+func getenvBool(key string, fallback bool) (bool, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s %q: must be true or false", key, v)
+	}
+	return parsed, nil
 }
