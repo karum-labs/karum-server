@@ -64,8 +64,9 @@ type Config struct {
 	// local development origins (localhost and 127.0.0.1 on any port).
 	ClientOrigins []string
 
-	// HackathonMode enables the preseeded judge banner and the credential-free
-	// judge session. It never turns the public demo into a login wall.
+	// HackathonMode enables the credential-free judge session. The login banner
+	// is the client's SHOW_JUDGES_BANNER flag. This never turns the public demo
+	// into a login wall.
 	HackathonMode bool
 	// JudgeEmail is the seeded judge account's email.
 	JudgeEmail string

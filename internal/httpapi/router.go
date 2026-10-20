@@ -150,6 +150,7 @@ func registerRoutes(r *gin.Engine, h *Handler) {
 			})
 		})
 		v1.POST("/auth/login", h.postLogin)
+		v1.POST("/auth/register", h.postRegister)
 		v1.POST("/auth/judge", h.postJudgeLogin)
 		v1.GET("/auth/me", h.requiredAuth(), h.getMe)
 		v1.POST("/auth/logout", h.requiredAuth(), h.postLogout)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/karum-labs/karum-server/internal/auth"
 )
@@ -62,6 +63,21 @@ func (s *Store) UpsertJudge(ctx context.Context, id, email, passwordHash, displa
 	`, id, email, passwordHash, displayName).Scan(
 		&account.ID, &account.Email, &account.DisplayName, &account.IsJudge,
 	)
+	return account, err
+}
+
+// InsertAccount creates a non-judge account. A duplicate email is ErrEmailTaken.
+func (s *Store) InsertAccount(ctx context.Context, account auth.Account, passwordHash string) (auth.Account, error) {
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO accounts (id, email, password_hash, display_name, is_judge)
+		VALUES ($1, $2, $3, $4, false)
+		RETURNING id, email, display_name, is_judge
+	`, account.ID, account.Email, passwordHash, account.DisplayName).Scan(
+		&account.ID, &account.Email, &account.DisplayName, &account.IsJudge,
+	)
+	if isUnique(err) {
+		return auth.Account{}, auth.ErrEmailTaken
+	}
 	return account, err
 }
 
@@ -124,4 +140,9 @@ func (s *Store) Ping(ctx context.Context) error {
 		return errors.New("postgres is not open")
 	}
 	return s.pool.Ping(ctx)
+}
+
+func isUnique(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

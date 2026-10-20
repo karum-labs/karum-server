@@ -57,6 +57,15 @@ func (m *memStore) UpsertJudge(_ context.Context, id, email, hash, displayName s
 	return account, nil
 }
 
+func (m *memStore) InsertAccount(_ context.Context, account Account, hash string) (Account, error) {
+	if _, ok := m.accounts[account.Email]; ok {
+		return Account{}, ErrEmailTaken
+	}
+	account.IsJudge = false
+	m.accounts[account.Email] = memAccount{account: account, hash: hash}
+	return account, nil
+}
+
 func (m *memStore) CreateSession(_ context.Context, tokenHash, accountID string, expiresAt time.Time) error {
 	m.sessions[tokenHash] = memSession{accountID: accountID, expires: expiresAt}
 	return nil
@@ -180,6 +189,31 @@ func TestJudgeLoginNeedsASeededJudge(t *testing.T) {
 	session, err := service.JudgeLogin(context.Background())
 	if err != nil || session.Account.ID != "acct-judge" {
 		t.Fatalf("JudgeLogin() = %+v, %v; want judge", session, err)
+	}
+}
+
+func TestRegisterSignsInAndRejectsADuplicateEmail(t *testing.T) {
+	service := NewService(newMemStore(), time.Hour)
+
+	session, err := service.Register(context.Background(), "Owner@Example.com", "password1")
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if session.Token == "" || session.Account.Email != "owner@example.com" || session.Account.IsJudge {
+		t.Fatalf("session = %+v", session)
+	}
+	if session.Account.DisplayName != "owner" {
+		t.Fatalf("display name = %q, want owner", session.Account.DisplayName)
+	}
+	if _, err := service.Register(context.Background(), "owner@example.com", "password1"); !errors.Is(err, ErrEmailTaken) {
+		t.Fatalf("duplicate Register() error = %v, want ErrEmailTaken", err)
+	}
+	signedIn, err := service.Login(context.Background(), "owner@example.com", "password1")
+	if err != nil || signedIn.Account.ID != session.Account.ID {
+		t.Fatalf("Login() = %+v, %v", signedIn, err)
+	}
+	if _, err := service.Register(context.Background(), "short@example.com", "tiny"); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("short password error = %v, want ErrInvalidRequest", err)
 	}
 }
 

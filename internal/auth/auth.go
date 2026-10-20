@@ -1,11 +1,11 @@
-// Package auth implements the gateway's small first-party account layer: one
-// preseeded judge account, bcrypt password hashes, and opaque server-side
-// sessions stored in Postgres.
+// Package auth implements the gateway's small first-party account layer:
+// email/password registration, bcrypt password hashes, opaque server-side
+// sessions, and one preseeded judge account.
 //
 // This is deliberately not a login wall. The public demo keeps working
-// anonymously (DECISIONS.md §3); a session only attributes a run to an account
-// and lets the judge start inside the preseeded account when HACKATHON_MODE is
-// on.
+// anonymously; a session only attributes a run to an account. HACKATHON_MODE
+// enables the passwordless judge sign-in the login banner calls. The banner
+// itself is a client build flag.
 package auth
 
 import (
@@ -22,6 +22,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	minPasswordLength = 8
+	maxPasswordBytes  = 72
+)
+
 // ErrInvalidCredentials is returned for an unknown email and a wrong password
 // alike, so the API never reveals which one was wrong.
 var ErrInvalidCredentials = errors.New("invalid credentials")
@@ -34,6 +39,21 @@ var ErrNotConfigured = errors.New("auth is not configured")
 
 // ErrNoJudge means the judged account has not been seeded.
 var ErrNoJudge = errors.New("judge account is not configured")
+
+// ErrEmailTaken means registration collided with an existing email.
+var ErrEmailTaken = errors.New("email taken")
+
+// ErrInvalidRequest means the caller sent a field the API can safely describe.
+var ErrInvalidRequest = errors.New("invalid request")
+
+// ValidationError is a request problem whose message is safe to show.
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string { return e.Message }
+
+func (e *ValidationError) Unwrap() error { return ErrInvalidRequest }
 
 // Account is the public account row returned to the client.
 type Account struct {
@@ -55,6 +75,7 @@ type Store interface {
 	FindAccountByEmail(ctx context.Context, email string) (Account, string, error)
 	FindJudge(ctx context.Context) (Account, error)
 	UpsertJudge(ctx context.Context, id, email, passwordHash, displayName string) (Account, error)
+	InsertAccount(ctx context.Context, account Account, passwordHash string) (Account, error)
 	CreateSession(ctx context.Context, tokenHash, accountID string, expiresAt time.Time) error
 	FindSession(ctx context.Context, tokenHash string) (Account, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
@@ -103,7 +124,6 @@ func (s *Service) EnsureJudge(ctx context.Context, id, email, password, displayN
 	if err == nil {
 		id = account.ID
 		if bcrypt.CompareHashAndPassword([]byte(existing), []byte(password)) == nil {
-			// Reuse the existing hash; only refresh the display name/flags.
 			account, err = s.store.UpsertJudge(ctx, id, email, existing, displayName)
 		} else {
 			account, err = s.store.UpsertJudge(ctx, id, email, hashPassword(password), displayName)
@@ -120,6 +140,36 @@ func (s *Service) EnsureJudge(ctx context.Context, id, email, password, displayN
 	return account, nil
 }
 
+// Register creates an account from an email and password and signs it in.
+func (s *Service) Register(ctx context.Context, email, password string) (Session, error) {
+	if !s.Enabled() {
+		return Session{}, ErrNotConfigured
+	}
+	email = normalizeEmail(email)
+	if err := validateIdentity(email, password); err != nil {
+		return Session{}, err
+	}
+	if _, _, err := s.store.FindAccountByEmail(ctx, email); err == nil {
+		return Session{}, ErrEmailTaken
+	} else if !errors.Is(err, ErrUnauthorized) && !isNotFound(err) {
+		return Session{}, err
+	}
+	id, err := newID("acct")
+	if err != nil {
+		return Session{}, err
+	}
+	account, err := s.store.InsertAccount(ctx, Account{
+		ID:          id,
+		Email:       email,
+		DisplayName: displayNameFromEmail(email),
+		IsJudge:     false,
+	}, hashPassword(password))
+	if err != nil {
+		return Session{}, err
+	}
+	return s.newSession(ctx, account)
+}
+
 // Login checks an email/password pair and creates a session.
 func (s *Service) Login(ctx context.Context, email, password string) (Session, error) {
 	if !s.Enabled() {
@@ -127,7 +177,6 @@ func (s *Service) Login(ctx context.Context, email, password string) (Session, e
 	}
 	account, hash, err := s.store.FindAccountByEmail(ctx, normalizeEmail(email))
 	if err != nil {
-		// Compare against a dummy hash so an unknown email costs the same.
 		_ = bcrypt.CompareHashAndPassword(s.dummyHash, []byte(password))
 		return Session{}, ErrInvalidCredentials
 	}
@@ -188,6 +237,36 @@ func (s *Service) newSession(ctx context.Context, account Account) (Session, err
 	return Session{Token: token, ExpiresAt: expires, Account: account}, nil
 }
 
+func validateIdentity(email, password string) error {
+	if !validEmail(email) {
+		return &ValidationError{Message: "enter a valid email address"}
+	}
+	if len(password) < minPasswordLength || len(password) > maxPasswordBytes {
+		return &ValidationError{Message: "password must be 8 to 72 characters"}
+	}
+	return nil
+}
+
+func validEmail(email string) bool {
+	if len(email) < 3 || len(email) > 320 {
+		return false
+	}
+	at := strings.LastIndex(email, "@")
+	if at <= 0 || at >= len(email)-1 {
+		return false
+	}
+	domain := email[at+1:]
+	return strings.Contains(domain, ".") && !strings.HasPrefix(domain, ".") && !strings.HasSuffix(domain, ".")
+}
+
+func displayNameFromEmail(email string) string {
+	at := strings.Index(email, "@")
+	if at <= 0 {
+		return email
+	}
+	return email[:at]
+}
+
 // NewToken returns 32 random bytes as an unpadded base64url token.
 func NewToken() (string, error) {
 	raw := make([]byte, 32)
@@ -209,11 +288,17 @@ func HashPassword(password string) string { return hashPassword(password) }
 func hashPassword(password string) string {
 	raw, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
-		// bcrypt only fails for passwords over 72 bytes; the config validates
-		// that before we get here.
 		return ""
 	}
 	return string(raw)
+}
+
+func newID(prefix string) (string, error) {
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return prefix + "-" + hex.EncodeToString(raw), nil
 }
 
 func normalizeEmail(email string) string {

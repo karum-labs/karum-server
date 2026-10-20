@@ -16,57 +16,84 @@ import (
 	"github.com/karum-labs/karum-server/internal/config"
 )
 
+type storedAccount struct {
+	account auth.Account
+	hash    string
+}
+
 type authTestStore struct {
-	account  auth.Account
-	hash     string
-	sessions map[string]auth.Account
+	accounts map[string]storedAccount
+	byID     map[string]string
+	sessions map[string]string
 	linked   []string
 }
 
 func newAuthTestStore() *authTestStore {
-	return &authTestStore{
-		account: auth.Account{
-			ID:          "acct-judge",
-			Email:       "judge@karum.demo",
-			DisplayName: "Karum Judge",
-			IsJudge:     true,
-		},
-		hash:     auth.HashPassword("secret"),
-		sessions: make(map[string]auth.Account),
+	store := &authTestStore{
+		accounts: make(map[string]storedAccount),
+		byID:     make(map[string]string),
+		sessions: make(map[string]string),
 	}
+	account := auth.Account{
+		ID:          "acct-judge",
+		Email:       "judge@karum.demo",
+		DisplayName: "Karum Judge",
+		IsJudge:     true,
+	}
+	store.accounts[account.Email] = storedAccount{account: account, hash: auth.HashPassword("secret")}
+	store.byID[account.ID] = account.Email
+	return store
 }
 
 func (s *authTestStore) FindAccountByEmail(_ context.Context, email string) (auth.Account, string, error) {
-	if email != s.account.Email {
+	row, ok := s.accounts[email]
+	if !ok {
 		return auth.Account{}, "", auth.ErrUnauthorized
 	}
-	return s.account, s.hash, nil
+	return row.account, row.hash, nil
 }
 
 func (s *authTestStore) FindJudge(_ context.Context) (auth.Account, error) {
-	if !s.account.IsJudge {
-		return auth.Account{}, auth.ErrNoJudge
+	for _, row := range s.accounts {
+		if row.account.IsJudge {
+			return row.account, nil
+		}
 	}
-	return s.account, nil
+	return auth.Account{}, auth.ErrNoJudge
 }
 
 func (s *authTestStore) UpsertJudge(_ context.Context, id, email, hash, displayName string) (auth.Account, error) {
-	s.account = auth.Account{ID: id, Email: email, DisplayName: displayName, IsJudge: true}
-	s.hash = hash
-	return s.account, nil
+	account := auth.Account{ID: id, Email: email, DisplayName: displayName, IsJudge: true}
+	s.accounts[email] = storedAccount{account: account, hash: hash}
+	s.byID[id] = email
+	return account, nil
 }
 
-func (s *authTestStore) CreateSession(_ context.Context, tokenHash, _ string, _ time.Time) error {
-	s.sessions[tokenHash] = s.account
+func (s *authTestStore) InsertAccount(_ context.Context, account auth.Account, hash string) (auth.Account, error) {
+	if _, ok := s.accounts[account.Email]; ok {
+		return auth.Account{}, auth.ErrEmailTaken
+	}
+	account.IsJudge = false
+	s.accounts[account.Email] = storedAccount{account: account, hash: hash}
+	s.byID[account.ID] = account.Email
+	return account, nil
+}
+
+func (s *authTestStore) CreateSession(_ context.Context, tokenHash, accountID string, _ time.Time) error {
+	s.sessions[tokenHash] = accountID
 	return nil
 }
 
 func (s *authTestStore) FindSession(_ context.Context, tokenHash string) (auth.Account, error) {
-	account, ok := s.sessions[tokenHash]
+	accountID, ok := s.sessions[tokenHash]
 	if !ok {
 		return auth.Account{}, auth.ErrUnauthorized
 	}
-	return account, nil
+	email, ok := s.byID[accountID]
+	if !ok {
+		return auth.Account{}, auth.ErrUnauthorized
+	}
+	return s.accounts[email].account, nil
 }
 
 func (s *authTestStore) DeleteSession(_ context.Context, tokenHash string) error {
@@ -233,6 +260,47 @@ func TestAuthEndpointsReportUnconfiguredStore(t *testing.T) {
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/auth/judge", nil))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("judge status = %d, want 503", w.Code)
+	}
+}
+
+func TestRegisterEmailAndPassword(t *testing.T) {
+	router, _ := authRouter(t, false)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{
+		"email":"owner@example.com",
+		"password":"password1"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("register status = %d, want 201 (%s)", w.Code, w.Body.String())
+	}
+	session := decodeSession(t, w.Body.Bytes())
+	if session.Token == "" || session.Account.Email != "owner@example.com" || session.Account.IsJudge {
+		t.Fatalf("session = %+v", session)
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{
+		"email":"owner@example.com",
+		"password":"password1"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("duplicate register status = %d, want 409 (%s)", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{
+		"email":"owner@example.com",
+		"password":"password1"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want 200 (%s)", w.Code, w.Body.String())
 	}
 }
 
