@@ -20,8 +20,9 @@ const (
 	// ModeLive means real upstream credentials are present and outbound calls
 	// go to live APIs.
 	ModeLive Mode = "live"
-	// ModeFixture means the stack is replaying recorded payloads and makes no
-	// outbound network calls.
+	// ModeFixture means the taste calls are served from the fixture pack, so
+	// the stack makes no outbound Qloo call. The AI service has no fixture
+	// replay: a draft still calls the model.
 	ModeFixture Mode = "fixture"
 	// ModeDegraded means an upstream dependency is unavailable and the gateway
 	// is running on its deterministic autopilot fallback.

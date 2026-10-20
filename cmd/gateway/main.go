@@ -1,9 +1,9 @@
 // Command gateway runs the Karum API gateway.
 //
 // The gateway is the single public entrypoint for the Flutter client. It
-// geocodes vacancies, orchestrates service-taste and service-ai over gRPC, and
-// streams progress over SSE. This binary only owns the HTTP surface and
-// graceful shutdown; the pipeline internals live in internal/orchestrator.
+// geocodes the campaign city, orchestrates service-taste and service-ai over
+// gRPC, and streams progress over SSE. This binary only owns the HTTP surface
+// and graceful shutdown; the pipeline internals live in internal/orchestrator.
 package main
 
 import (
@@ -29,6 +29,7 @@ import (
 	"github.com/karum-labs/karum-server/internal/persist"
 	"github.com/karum-labs/karum-server/internal/places"
 	"github.com/karum-labs/karum-server/internal/presets"
+	"github.com/karum-labs/karum-server/internal/resilience"
 	"github.com/karum-labs/karum-server/internal/routes"
 )
 
@@ -224,15 +225,30 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 		geocoder = geocode.GoogleGeocoder{Key: cfg.GeocodeAPIKey, Cache: cache}
 	}
 
+	// The create keys live in Postgres so a double submit returns the original
+	// job across a restart or another replica; the in-process store is the
+	// fallback when the database is unreachable (PLAN.md §26).
+	idempotency := &resilience.FallbackStore{Memory: resilience.NewIdempotency()}
+	if sql != nil {
+		store := persist.NewIdempotency(sql.Pool())
+		store.StartSweeper(ctx, time.Hour)
+		idempotency.Primary = store
+	}
+
 	return runtimeDeps{
 		sql:     sql,
 		clients: clients,
 		http: httpapi.Dependencies{
-			Live:     runner,
+			Live: runner,
+			// The fixture runner is the same pipeline: in fixture mode the
+			// Qloo calls are served from the pack by service-taste, and a
+			// draft still calls the model. The seam exists so a deployment
+			// can point the two modes at different transports.
 			Fixture:  runner,
 			Store:    mem,
 			Geocoder: geocoder,
 			Auth:     authService,
+			Idem:     idempotency,
 			Async:    true,
 			Probes: httpapi.Probes{
 				Taste: httpModeProbe("http://" + cfg.TasteAddr + "/health"),

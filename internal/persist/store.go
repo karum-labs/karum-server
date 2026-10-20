@@ -163,6 +163,14 @@ func (s *Store) Close() {
 	}
 }
 
+// Pool exposes the connection pool so another store can share it.
+func (s *Store) Pool() *pgxpool.Pool {
+	if s == nil {
+		return nil
+	}
+	return s.pool
+}
+
 // Memory is the hot cache that satisfies orchestrator.RunStore.
 func (s *Store) Memory() *orchestrator.Store {
 	if s == nil {

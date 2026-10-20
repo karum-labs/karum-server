@@ -1,7 +1,7 @@
 // Package httpapi wires the Gin router and the HTTP handlers for the gateway.
 //
 // The gateway is the single public entrypoint for the Flutter client. It
-// geocodes the vacancy, orchestrates the two microservices over gRPC, and
+// geocodes the campaign city, orchestrates the two microservices over gRPC, and
 // streams progress to the client. This package holds the HTTP surface; the
 // orchestration internals live in internal/orchestrator.
 package httpapi

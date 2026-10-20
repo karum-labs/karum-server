@@ -136,39 +136,136 @@ func (l *Limiter) Allow(ip string) bool {
 	return l.global.Allow()
 }
 
-// Idempotency remembers the first body hash and job id for a key.
-type Idempotency struct {
-	mu   sync.Mutex
-	keys map[string]Idempotent
-}
-
 // Idempotent is one stored create.
 type Idempotent struct {
 	Hash  string
 	JobID string
 }
 
-// NewIdempotency returns an empty store.
+// IdempotencyStore remembers the first body hash and job id for a create key,
+// so a double submit returns the original job (PLAN.md §26).
+type IdempotencyStore interface {
+	// Lookup returns the record stored for the key.
+	Lookup(ctx context.Context, key string) (Idempotent, bool, error)
+	// Remember stores the key. It reports false when another request stored a
+	// record for the key first.
+	Remember(ctx context.Context, key string, item Idempotent) (bool, error)
+}
+
+// Idempotency is the in-process store: the fallback when Postgres is
+// unreachable, and the store a single-replica deployment uses.
+type Idempotency struct {
+	mu   sync.Mutex
+	keys map[string]idempotentEntry
+	// ttl bounds how long a key is remembered; a create key older than this
+	// is treated as a new create.
+	ttl time.Duration
+	// limit bounds the map, so an unbounded key space cannot grow forever.
+	limit int
+	now   func() time.Time
+}
+
+// idempotentEntry is one remembered create with the time it was stored.
+type idempotentEntry struct {
+	item   Idempotent
+	stored time.Time
+}
+
+// NewIdempotency returns an empty in-process store.
 func NewIdempotency() *Idempotency {
-	return &Idempotency{keys: map[string]Idempotent{}}
+	return &Idempotency{
+		keys:  map[string]idempotentEntry{},
+		ttl:   24 * time.Hour,
+		limit: 10000,
+		now:   time.Now,
+	}
 }
 
 // Lookup returns a previous create for the key.
-func (s *Idempotency) Lookup(key string) (Idempotent, bool) {
+func (s *Idempotency) Lookup(ctx context.Context, key string) (Idempotent, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	item, ok := s.keys[key]
-	return item, ok
+	entry, ok := s.keys[key]
+	if !ok {
+		return Idempotent{}, false, nil
+	}
+	if s.expired(entry) {
+		delete(s.keys, key)
+		return Idempotent{}, false, nil
+	}
+	return entry.item, true, nil
 }
 
 // Remember stores the key. A concurrent first-writer wins; the bool is false
 // when another request stored a different record first.
-func (s *Idempotency) Remember(key string, item Idempotent) bool {
+func (s *Idempotency) Remember(ctx context.Context, key string, item Idempotent) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.keys[key]; ok {
+	if entry, ok := s.keys[key]; ok && !s.expired(entry) {
+		return false, nil
+	}
+	s.keys[key] = idempotentEntry{item: item, stored: s.now()}
+	s.evictLocked()
+	return true, nil
+}
+
+// expired reports whether the entry is older than the store's ttl.
+func (s *Idempotency) expired(entry idempotentEntry) bool {
+	if s.ttl <= 0 {
 		return false
 	}
-	s.keys[key] = item
-	return true
+	return s.now().Sub(entry.stored) > s.ttl
+}
+
+// evictLocked drops the oldest entries when the map is over its limit.
+func (s *Idempotency) evictLocked() {
+	if s.limit <= 0 || len(s.keys) <= s.limit {
+		return
+	}
+	oldestKey := ""
+	var oldest time.Time
+	for key, entry := range s.keys {
+		if oldestKey == "" || entry.stored.Before(oldest) {
+			oldestKey, oldest = key, entry.stored
+		}
+	}
+	if oldestKey != "" {
+		delete(s.keys, oldestKey)
+	}
+}
+
+// FallbackStore tries the primary store and falls back to the in-process one
+// when the primary is unreachable, so a create never fails because the
+// database is down (PLAN.md §25).
+type FallbackStore struct {
+	Primary IdempotencyStore
+	Memory  *Idempotency
+}
+
+// Lookup reads the primary store and falls back to memory on error.
+func (f *FallbackStore) Lookup(ctx context.Context, key string) (Idempotent, bool, error) {
+	if f.Primary != nil {
+		item, ok, err := f.Primary.Lookup(ctx, key)
+		if err == nil {
+			return item, ok, nil
+		}
+	}
+	if f.Memory == nil {
+		return Idempotent{}, false, nil
+	}
+	return f.Memory.Lookup(ctx, key)
+}
+
+// Remember writes to the primary store and falls back to memory on error.
+func (f *FallbackStore) Remember(ctx context.Context, key string, item Idempotent) (bool, error) {
+	if f.Primary != nil {
+		won, err := f.Primary.Remember(ctx, key, item)
+		if err == nil {
+			return won, nil
+		}
+	}
+	if f.Memory == nil {
+		return true, nil
+	}
+	return f.Memory.Remember(ctx, key, item)
 }

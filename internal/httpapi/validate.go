@@ -102,9 +102,6 @@ func validateScout(body scoutBody, hasPreset bool) error {
 	if body.FreeEntry && seeds == 0 && queries == 0 && !hasPreset {
 		return errors.New("free entry needs a seed or a brand query")
 	}
-	if seeds > 0 && (seeds < 1 || seeds > maxSeeds) {
-		return errors.New("a scout accepts one to four seed entities")
-	}
 	if body.Point != nil {
 		if err := geocode.ValidatePoint(body.Point.Lat, body.Point.Lng); err != nil {
 			return err

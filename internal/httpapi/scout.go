@@ -38,7 +38,7 @@ func (h *Handler) postScout(c *gin.Context) {
 	}
 	sum := sha256.Sum256(body)
 	hash := hex.EncodeToString(sum[:])
-	if prev, ok := h.idem.Lookup(key); ok {
+	if prev, ok, err := h.idem.Lookup(c.Request.Context(), key); err == nil && ok {
 		if prev.Hash != hash {
 			writeError(c, http.StatusConflict, "conflict", "Idempotency-Key was already used with a different request")
 			return
@@ -63,8 +63,8 @@ func (h *Handler) postScout(c *gin.Context) {
 	}
 	if hasPreset && !req.FreeEntry && !req.Rerun {
 		if stored, ok := h.store.NewestReady(req.PresetID); ok {
-			if !h.idem.Remember(key, resilience.Idempotent{Hash: hash, JobID: stored.ID}) {
-				if prev, ok := h.idem.Lookup(key); ok {
+			if won, err := h.idem.Remember(c.Request.Context(), key, resilience.Idempotent{Hash: hash, JobID: stored.ID}); err == nil && !won {
+				if prev, ok, err := h.idem.Lookup(c.Request.Context(), key); err == nil && ok {
 					h.writeExisting(c, prev.JobID)
 					return
 				}
@@ -104,8 +104,8 @@ func (h *Handler) postScout(c *gin.Context) {
 			})
 		}
 	}
-	if !h.idem.Remember(key, resilience.Idempotent{Hash: hash, JobID: built.ID}) {
-		if prev, ok := h.idem.Lookup(key); ok {
+	if won, err := h.idem.Remember(c.Request.Context(), key, resilience.Idempotent{Hash: hash, JobID: built.ID}); err == nil && !won {
+		if prev, ok, err := h.idem.Lookup(c.Request.Context(), key); err == nil && ok {
 			h.writeExisting(c, prev.JobID)
 			return
 		}

@@ -66,15 +66,73 @@ func TestLimiterPerIPAndGlobal(t *testing.T) {
 }
 
 func TestIdempotencyRemembersTheFirstBody(t *testing.T) {
+	ctx := context.Background()
 	s := NewIdempotency()
-	if !s.Remember("k", Idempotent{Hash: "h1", JobID: "run-1"}) {
-		t.Fatal("first remember must win")
+	won, err := s.Remember(ctx, "k", Idempotent{Hash: "h1", JobID: "run-1"})
+	if err != nil || !won {
+		t.Fatalf("first remember must win: won=%v err=%v", won, err)
 	}
-	if s.Remember("k", Idempotent{Hash: "h2", JobID: "run-2"}) {
-		t.Fatal("second remember must lose")
+	won, err = s.Remember(ctx, "k", Idempotent{Hash: "h2", JobID: "run-2"})
+	if err != nil || won {
+		t.Fatalf("second remember must lose: won=%v err=%v", won, err)
 	}
-	got, ok := s.Lookup("k")
+	got, ok, err := s.Lookup(ctx, "k")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
 	if !ok || got.JobID != "run-1" || got.Hash != "h1" {
 		t.Fatalf("stored = %+v ok=%v", got, ok)
 	}
+}
+
+func TestIdempotencyExpiresAndBoundsTheMap(t *testing.T) {
+	ctx := context.Background()
+	s := NewIdempotency()
+	s.ttl = time.Minute
+	s.limit = 2
+	now := time.Now()
+	s.now = func() time.Time { return now }
+
+	if _, err := s.Remember(ctx, "k", Idempotent{Hash: "h1", JobID: "run-1"}); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+	now = now.Add(2 * time.Minute)
+	if _, ok, err := s.Lookup(ctx, "k"); err != nil || ok {
+		t.Fatalf("an expired key must not be served: ok=%v err=%v", ok, err)
+	}
+
+	now = time.Now()
+	for _, key := range []string{"a", "b", "c"} {
+		if _, err := s.Remember(ctx, key, Idempotent{Hash: "h", JobID: key}); err != nil {
+			t.Fatalf("remember %s: %v", key, err)
+		}
+	}
+	if len(s.keys) > s.limit {
+		t.Fatalf("the map grew past its limit: %d keys", len(s.keys))
+	}
+}
+
+func TestFallbackStoreUsesMemoryWhenThePrimaryFails(t *testing.T) {
+	ctx := context.Background()
+	failing := &failingStore{}
+	store := &FallbackStore{Primary: failing, Memory: NewIdempotency()}
+
+	if _, err := store.Remember(ctx, "k", Idempotent{Hash: "h1", JobID: "run-1"}); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+	got, ok, err := store.Lookup(ctx, "k")
+	if err != nil || !ok || got.JobID != "run-1" {
+		t.Fatalf("the memory fallback must serve the key: got=%+v ok=%v err=%v", got, ok, err)
+	}
+}
+
+// failingStore is a store whose database is unreachable.
+type failingStore struct{}
+
+func (f *failingStore) Lookup(context.Context, string) (Idempotent, bool, error) {
+	return Idempotent{}, false, errors.New("database is down")
+}
+
+func (f *failingStore) Remember(context.Context, string, Idempotent) (bool, error) {
+	return false, errors.New("database is down")
 }

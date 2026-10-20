@@ -1,6 +1,6 @@
 # karum-server
 
-The **Go + Gin API gateway** for [Karum](https://github.com/karum-labs/karum-infra#readme) — the tenant-mix leasing agent. This is the single public entrypoint the Flutter client talks to. It geocodes vacancies, orchestrates `service-taste` and `service-ai` over gRPC, and streams job progress over SSE.
+The **Go + Gin API gateway** for [Karum](https://github.com/karum-labs/karum-infra#readme) — the brand-operated expansion agent. This is the single public entrypoint the Flutter client talks to. It geocodes the campaign city, orchestrates `service-taste` and `service-ai` over gRPC, and streams job progress over SSE.
 
 Part of the five-repo Karum layout:
 
@@ -85,8 +85,10 @@ docker run -p 8080:8080 karum-server
 cmd/gateway/          main.go — process entrypoint + graceful shutdown
 internal/config/      environment-driven configuration
 internal/httpapi/     Gin router + HTTP handlers
-internal/geocode/     vacancy address → point (stub)
-internal/orchestrator/ job pipeline (stub)
+internal/geocode/     city query → point
+internal/orchestrator/ the run pipeline
+internal/persist/     Postgres schema, stores, and migrations
+internal/resilience/  deadlines, breaker, rate limits, idempotency
 ```
 
 ## Ownership

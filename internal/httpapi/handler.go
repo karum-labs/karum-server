@@ -44,10 +44,12 @@ type Dependencies struct {
 	Limiter  *resilience.Limiter
 	// LoginLimiter bounds password attempts separately from scout requests.
 	LoginLimiter *resilience.Limiter
-	Idem         *resilience.Idempotency
-	Renderer     Renderer
-	Auth         *auth.Service
-	Probes       Probes
+	// Idem remembers the create keys. It is the Postgres-backed store when
+	// the database is reachable, with the in-process store as the fallback.
+	Idem     resilience.IdempotencyStore
+	Renderer Renderer
+	Auth     *auth.Service
+	Probes   Probes
 	// Async starts the pipeline in the background and returns the job id
 	// immediately. Tests leave it false so GET sees a finished run.
 	Async bool
@@ -63,7 +65,7 @@ type Handler struct {
 	catalog      *presets.Catalog
 	limiter      *resilience.Limiter
 	loginLimiter *resilience.Limiter
-	idem         *resilience.Idempotency
+	idem         resilience.IdempotencyStore
 	renderer     Renderer
 	auth         *auth.Service
 	probes       Probes
