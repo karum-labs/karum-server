@@ -292,6 +292,12 @@ func (h *Handler) renderDraft(c *gin.Context, brief bool) {
 }
 
 func (h *Handler) postDoorPitch(c *gin.Context) {
+	// Regeneration is the other path that bills a model call, so it carries
+	// its own per-IP budget (PLAN.md §26).
+	if !h.regenLimiter.Allow(c.ClientIP()) {
+		writeError(c, http.StatusTooManyRequests, "rate_limited", "too many pitch regenerations; wait before trying again")
+		return
+	}
 	runner, err := h.runnerFor(false)
 	if err != nil || runner == nil {
 		writeError(c, http.StatusServiceUnavailable, "upstream", "no pipeline is configured")

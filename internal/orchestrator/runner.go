@@ -142,7 +142,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 			run := r.blank(req)
 			run.State = StateFailed
 			run.ErrorCode = firstNonEmpty(resolved.ErrorCode, CodeUnresolved)
-			run.ErrorMessage = resolved.ErrorMessage
+			run.ErrorMessage = firstNonEmpty(resolved.ErrorMessage, "the brand query resolved to nothing")
 			r.trace(run, StageSeed, time.Now(), resolved.ErrorMessage, false)
 			return run, nil
 		}
@@ -218,13 +218,16 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 
 	if scout.ErrorCode != "" && scout.ErrorCode != CodeUnspecified {
 		run.State = StateFailed
-		run.Warnings = append(run.Warnings, scout.ErrorMessage)
+		run.ErrorCode = scout.ErrorCode
+		run.ErrorMessage = firstNonEmpty(scout.ErrorMessage, "the scout call failed: "+scout.ErrorCode)
+		run.Warnings = append(run.Warnings, run.ErrorMessage)
 		r.store.Put(run)
 		return run, nil
 	}
 	if len(scout.Doors) == 0 {
 		run.State = StateFailed
 		run.ErrorCode = CodeEmpty
+		run.ErrorMessage = "no doors matched the seed"
 		run.Warnings = append(run.Warnings, "no doors matched the seed")
 		r.store.Put(run)
 		return run, nil
@@ -279,11 +282,8 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 		return run, err
 	}
 
-	for _, door := range run.Doors {
-		if err := r.aborted(ctx, run); err != nil {
-			return run, err
-		}
-		r.draftDoor(ctx, run, door, req, &degraded)
+	if err := r.draftDoors(ctx, run, req, &degraded); err != nil {
+		return run, err
 	}
 
 	r.routeDoors(ctx, run)
@@ -324,13 +324,18 @@ func (r *Runner) RegenerateDoor(
 	}
 
 	started := time.Now()
-	draft, err := r.agent.DraftDoorPitch(ctx, DraftRequest{
-		Brand:       run.Brand,
-		Door:        door,
-		Finding:     finding,
-		City:        run.City,
-		Mode:        run.Mode,
-		EvidenceIDs: evidenceIDs,
+	var draft DraftResult
+	err := r.callAI(ctx, func(ctx context.Context) error {
+		var callErr error
+		draft, callErr = r.agent.DraftDoorPitch(ctx, DraftRequest{
+			Brand:       run.Brand,
+			Door:        door,
+			Finding:     finding,
+			City:        run.City,
+			Mode:        run.Mode,
+			EvidenceIDs: evidenceIDs,
+		})
+		return callErr
 	})
 	if err != nil {
 		r.trace(run, StageRegenerate, started, err.Error(), false)
@@ -357,6 +362,37 @@ func (r *Runner) RegenerateDoor(
 	r.trace(run, StageRegenerate, started, draftDetail(door, draft), false)
 	r.store.Put(run)
 	return run, nil
+}
+
+// draftDoors drafts the audited working shortlist.
+//
+// The audit is capped at the doors that can appear on the board
+// (workingShortlist), so drafting beyond that cap would bill a model call for
+// a door with no shelf audit behind it. The cap is surfaced as a warning so
+// the operator knows why later doors carry no stored pitch (PLAN.md §16-§18).
+func (r *Runner) draftDoors(
+	ctx context.Context,
+	run *Run,
+	req Request,
+	degraded *bool,
+) error {
+	limit := workingShortlist
+	if len(run.Doors) < limit {
+		limit = len(run.Doors)
+	}
+	if len(run.Doors) > limit {
+		run.Warnings = append(run.Warnings, fmt.Sprintf(
+			"pitch drafting is capped to the audited shortlist (%d of %d doors)",
+			limit, len(run.Doors),
+		))
+	}
+	for _, door := range run.Doors[:limit] {
+		if err := r.aborted(ctx, run); err != nil {
+			return err
+		}
+		r.draftDoor(ctx, run, door, req, degraded)
+	}
+	return nil
 }
 
 // draftDoor drafts one door, falling back to a template on any Vertex failure.

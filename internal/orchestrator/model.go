@@ -90,6 +90,7 @@ type Door struct {
 type SkipItem struct {
 	Entity          SeedEntity
 	Reason          string
+	ReasonDetail    string
 	RawAffinity     float64
 	Floor           float64
 	CompetitorCount int

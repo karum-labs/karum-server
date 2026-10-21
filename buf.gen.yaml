@@ -15,9 +15,13 @@ plugins:
       - paths=source_relative
   - remote: buf.build/protocolbuffers/python:v36.2
     out: ../karum-service-taste/src
+  - remote: buf.build/protocolbuffers/pyi:v36.2
+    out: ../karum-service-taste/src
   - remote: buf.build/grpc/python:v1.84.0
     out: ../karum-service-taste/src
   - remote: buf.build/protocolbuffers/python:v36.2
+    out: ../karum-service-ai/src
+  - remote: buf.build/protocolbuffers/pyi:v36.2
     out: ../karum-service-ai/src
   - remote: buf.build/grpc/python:v1.84.0
     out: ../karum-service-ai/src

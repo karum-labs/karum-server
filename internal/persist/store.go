@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -76,12 +77,23 @@ func poolConfig(dsn string) (*pgxpool.Config, error) {
 	return cfg, nil
 }
 
+// hydrateRunsPerCampaign bounds how many historical runs a restart restores
+// per campaign. The newest run still serves the preset replay; the older rows
+// stay addressable by run id instead of 404ing after a restart (PLAN.md §25).
+const hydrateRunsPerCampaign = 10
+
 func (s *Store) hydrate(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT ON (campaign_id) id, campaign_id, payload
-		FROM runs
-		ORDER BY campaign_id, created_at DESC
-	`)
+		SELECT id, campaign_id, payload
+		FROM (
+			SELECT id, campaign_id, payload,
+			       row_number() OVER (
+			           PARTITION BY campaign_id ORDER BY created_at DESC
+			       ) AS rn
+			FROM runs
+		) ranked
+		WHERE rn <= $1
+	`, hydrateRunsPerCampaign)
 	if err != nil {
 		return err
 	}
@@ -153,7 +165,12 @@ func (b Bridge) Put(run *orchestrator.Run) {
 	// final state write must not be abandoned after the scouting call.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_ = b.SQL.Put(ctx, run)
+	if err := b.SQL.Put(ctx, run); err != nil {
+		// The memory snapshot already has the campaign, so the request keeps
+		// working; the operator still needs to see that the durable copy did
+		// not land (PLAN.md §25).
+		log.Printf("persist: run %s write failed: %v", run.ID, err)
+	}
 }
 
 // Close releases the pool.

@@ -126,6 +126,37 @@ func TestFallbackStoreUsesMemoryWhenThePrimaryFails(t *testing.T) {
 	}
 }
 
+func TestLimiterEvictsTheOldestIPBuckets(t *testing.T) {
+	l := NewLimiter(100, 100, 1000, 1000)
+	l.limit = 2
+	base := time.Now()
+	l.now = func() time.Time { return base }
+
+	if !l.Allow("first") {
+		t.Fatal("the first IP must be allowed")
+	}
+	base = base.Add(time.Second)
+	if !l.Allow("second") {
+		t.Fatal("the second IP must be allowed")
+	}
+	base = base.Add(time.Second)
+	if !l.Allow("third") {
+		t.Fatal("the third IP must be allowed")
+	}
+
+	if got := l.Size(); got != 2 {
+		t.Fatalf("limiter buckets = %d, want the limit (2)", got)
+	}
+	if _, ok := l.ips["first"]; ok {
+		t.Fatal("the least recently seen bucket must be evicted")
+	}
+	for _, ip := range []string{"second", "third"} {
+		if _, ok := l.ips[ip]; !ok {
+			t.Fatalf("the recent bucket %q must be kept", ip)
+		}
+	}
+}
+
 // failingStore is a store whose database is unreachable.
 type failingStore struct{}
 

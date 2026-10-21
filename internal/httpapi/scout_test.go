@@ -416,6 +416,40 @@ func TestAbortAndRateLimit(t *testing.T) {
 	t.Fatal("aborted job did not fail")
 }
 
+func TestRegenerateIsRateLimited(t *testing.T) {
+	store := orchestrator.NewStore()
+	runner := orchestrator.NewRunner(&httpTaste{name: "Live"}, httpAgent{}, store)
+	router := NewRouterWithDeps(&config.Config{Mode: config.ModeLive}, Dependencies{
+		Live: runner, Store: store,
+		RegenLimiter: resilience.NewLimiter(0.01, 1, 100, 100),
+		Geocoder: &httpGeo{result: &geocode.Result{
+			Resolved:         geocode.Point{Lat: 30.26, Lng: -97.74},
+			FormattedAddress: "Austin, TX", Attribution: geocode.AttributionGoogle,
+		}},
+	})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	created := postJSON(t, srv, "/api/v1/scout", "regen-1", map[string]any{
+		"city": "Austin", "mode": "wholesale", "brand_name": "Sola",
+		"point":         map[string]any{"lat": 30.2, "lng": -97.7},
+		"seed_entities": []map[string]string{{"id": "s", "type": "urn:entity:brand", "name": "Sola"}},
+	})
+	job := decode(t, created)
+	path := "/api/v1/scout/" + job["job_id"].(string) + "/drafts/doors/d-1"
+
+	first := postJSON(t, srv, path, "", nil)
+	first.Body.Close()
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first regenerate = %d", first.StatusCode)
+	}
+	second := postJSON(t, srv, path, "", nil)
+	second.Body.Close()
+	if second.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("regenerate rate limit = %d, want 429", second.StatusCode)
+	}
+}
+
 type payloadHeatmap struct{}
 
 func (payloadHeatmap) GetLocalityHeatmap(context.Context, orchestrator.HeatmapQuery) (orchestrator.HeatmapView, error) {

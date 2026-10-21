@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -290,6 +291,41 @@ func TestAuditIsCappedToTheWorkingShortlist(t *testing.T) {
 	}
 	if got := len(agent.auditCalls[0].Targets); got != workingShortlist {
 		t.Fatalf("audit targets = %d, want %d", got, workingShortlist)
+	}
+}
+
+func TestDraftingIsCappedToTheAuditedShortlist(t *testing.T) {
+	taste := healthyTaste()
+	doors := make([]Door, 0, workingShortlist+2)
+	for i := 1; i <= workingShortlist+2; i++ {
+		doors = append(doors, testDoor(fmt.Sprintf("d-%d", i), fmt.Sprintf("Door %d", i), i))
+	}
+	taste.result.Doors = doors
+	agent := healthyAgent()
+	runner := NewRunner(taste, agent, NewStore())
+
+	run, err := runner.Run(context.Background(), testRequest(false))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(run.Doors) != len(doors) {
+		t.Fatalf("doors = %d, want %d", len(run.Doors), len(doors))
+	}
+	if got := len(agent.draftCalls); got != workingShortlist {
+		t.Fatalf("draft calls = %d, want the audited shortlist (%d)", got, workingShortlist)
+	}
+	if len(run.Pitches) != workingShortlist {
+		t.Fatalf("stored pitches = %d, want %d", len(run.Pitches), workingShortlist)
+	}
+	found := false
+	for _, warning := range run.Warnings {
+		if strings.Contains(warning, "capped to the audited shortlist") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("the draft cap was not surfaced in the warnings: %v", run.Warnings)
 	}
 }
 

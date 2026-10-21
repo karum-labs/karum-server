@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -42,6 +43,9 @@ func (r *Runner) blank(req Request) *Run {
 func (r *Runner) aborted(ctx context.Context, run *Run) error {
 	if err := ctx.Err(); err != nil {
 		run.State = StateFailed
+		// A cancellation is not an upstream failure, so the run carries a
+		// message and no error code.
+		run.ErrorMessage = "the run was canceled before it finished"
 		run.Warnings = append(run.Warnings, "canceled")
 		r.store.Put(run)
 		return err
@@ -74,8 +78,8 @@ func (r *Runner) callTaste(ctx context.Context, fn func(context.Context) error) 
 	if !r.tasteBreaker.Allow() {
 		return &UpstreamError{Code: CodeUpstream, Message: "taste circuit open"}
 	}
-	err := resilience.Do(ctx, r.tasteTimeout, 8*time.Second, fn)
-	r.tasteBreaker.Record(err)
+	err := resilience.DoWithRetry(ctx, r.tasteTimeout, 8*time.Second, fn)
+	record(r.tasteBreaker, ctx, err)
 	return err
 }
 
@@ -83,11 +87,47 @@ func (r *Runner) callAI(ctx context.Context, fn func(context.Context) error) err
 	if r.aiBreaker != nil && !r.aiBreaker.Allow() {
 		return &UpstreamError{Code: CodeUpstream, Message: "ai circuit open"}
 	}
-	err := resilience.Do(ctx, r.aiTimeout, 30*time.Second, fn)
-	if r.aiBreaker != nil {
-		r.aiBreaker.Record(err)
-	}
+	err := resilience.DoWithRetry(ctx, r.aiTimeout, 30*time.Second, fn)
+	record(r.aiBreaker, ctx, err)
 	return err
+}
+
+// record counts a call outcome on a breaker. A cancelled call, and a call
+// the caller's own deadline ended, are not upstream failures: the streak
+// stays as it is, so an aborted run never opens the circuit. A deadline the
+// gateway set is an upstream failure: the upstream hung.
+func record(breaker *resilience.Breaker, ctx context.Context, err error) {
+	if breaker == nil {
+		return
+	}
+	switch {
+	case err == nil:
+		breaker.Record(nil)
+	case ctx.Err() != nil:
+		// The caller cancelled the run or its own deadline passed.
+	case errors.Is(err, context.DeadlineExceeded):
+		breaker.Record(&UpstreamError{Code: CodeUpstream, Message: "the upstream call timed out"})
+	default:
+		breaker.Record(err)
+	}
+}
+
+// failureOf maps a failed call onto the typed code and the message the
+// client shows. A cancelled call is not an upstream failure, so it carries
+// no code.
+func failureOf(err error) (string, string) {
+	if err == nil {
+		return "", ""
+	}
+	if resilience.IsCanceled(err) {
+		return "", "the run was canceled before it finished"
+	}
+	code := CodeOf(err)
+	message := err.Error()
+	if message == "" {
+		message = code
+	}
+	return code, message
 }
 
 func (r *Runner) scoutAndHeatmap(ctx context.Context, run *Run, req Request, scoutReq ScoutRequest) (ScoutResult, error) {
@@ -118,6 +158,7 @@ func (r *Runner) scoutAndHeatmap(ctx context.Context, run *Run, req Request, sco
 	wg.Wait()
 	if scoutErr != nil {
 		run.State = StateFailed
+		run.ErrorCode, run.ErrorMessage = failureOf(scoutErr)
 		run.Warnings = append(run.Warnings, "scout failed: "+scoutErr.Error())
 		r.trace(run, StageScout, started, scoutErr.Error(), false)
 		return ScoutResult{}, scoutErr
@@ -212,9 +253,11 @@ func (r *Runner) enrich(ctx context.Context, run *Run, req Request) {
 		}
 		if row.Closed {
 			run.Skip = append(run.Skip, SkipItem{
-				Entity:      door.Entity,
-				Reason:      "closed",
-				RawAffinity: door.Affinity.RawValue,
+				Entity:       door.Entity,
+				Reason:       "closed",
+				ReasonDetail: "the venue is closed per the Places read",
+				RawAffinity:  door.Affinity.RawValue,
+				Floor:        run.AffinityFloor,
 			})
 			continue
 		}
@@ -233,10 +276,8 @@ func (r *Runner) callPlaces(ctx context.Context, fn func(context.Context) error)
 	if r.placesBreaker != nil && !r.placesBreaker.Allow() {
 		return &UpstreamError{Code: CodeUpstream, Message: "places circuit open"}
 	}
-	err := resilience.Do(ctx, r.placesTimeout, 5*time.Second, fn)
-	if r.placesBreaker != nil {
-		r.placesBreaker.Record(err)
-	}
+	err := resilience.DoWithRetry(ctx, r.placesTimeout, 5*time.Second, fn)
+	record(r.placesBreaker, ctx, err)
 	return err
 }
 
@@ -304,6 +345,7 @@ func (r *Runner) scoreDoors(run *Run) {
 			run.Skip = append(run.Skip, SkipItem{
 				Entity:          door.Entity,
 				Reason:          "competitor_saturation",
+				ReasonDetail:    fmt.Sprintf("%d direct niche competitors on the shelf", finding.CompetitorCount),
 				RawAffinity:     door.Affinity.RawValue,
 				Floor:           floor,
 				CompetitorCount: finding.CompetitorCount,
@@ -311,10 +353,11 @@ func (r *Runner) scoreDoors(run *Run) {
 			continue
 		case score.BelowFloor(door.Affinity.RawValue, floor):
 			run.Skip = append(run.Skip, SkipItem{
-				Entity:      door.Entity,
-				Reason:      "low_affinity",
-				RawAffinity: door.Affinity.RawValue,
-				Floor:       floor,
+				Entity:       door.Entity,
+				Reason:       "low_affinity",
+				ReasonDetail: fmt.Sprintf("%.4f below the returned floor %.4f", door.Affinity.RawValue, floor),
+				RawAffinity:  door.Affinity.RawValue,
+				Floor:        floor,
 			})
 			continue
 		}
@@ -379,18 +422,19 @@ func (r *Runner) routeDoors(ctx context.Context, run *Run) {
 	for _, door := range run.Doors {
 		stops = append(stops, routes.Stop{ID: door.Entity.ID, Name: door.Entity.Name, Lat: door.Lat, Lng: door.Lng})
 	}
+	if r.routesBreaker != nil && !r.routesBreaker.Allow() {
+		run.Route = &RouteView{Failed: true, Error: "routes circuit open", Attribution: routes.Attribution}
+		run.Warnings = append(run.Warnings, "route unavailable: routes circuit open")
+		r.trace(run, StageRoute, started, "routes circuit open", false)
+		return
+	}
 	var plan routes.Plan
-	err := resilience.Do(ctx, r.routesTimeout, 5*time.Second, func(ctx context.Context) error {
-		if r.routesBreaker != nil && !r.routesBreaker.Allow() {
-			return &UpstreamError{Code: CodeUpstream, Message: "routes circuit open"}
-		}
+	err := resilience.DoWithRetry(ctx, r.routesTimeout, 5*time.Second, func(ctx context.Context) error {
 		var callErr error
 		plan, callErr = r.routes.Plan(ctx, string(run.Mode), stops)
-		if r.routesBreaker != nil {
-			r.routesBreaker.Record(callErr)
-		}
 		return callErr
 	})
+	record(r.routesBreaker, ctx, err)
 	if err != nil {
 		run.Route = &RouteView{Failed: true, Error: err.Error(), Attribution: routes.Attribution}
 		run.Warnings = append(run.Warnings, "route unavailable: "+err.Error())

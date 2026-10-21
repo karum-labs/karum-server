@@ -50,8 +50,10 @@ Every setting is read from the environment. `POSTGRES_DSN` is required. The othe
 | `GATEWAY_PORT` | `8080` | HTTP listen port |
 | `GATEWAY_MODE` | `fixture` | `live`, `fixture`, or `degraded`; reported on `/health` |
 | `GATEWAY_VERSION` | `dev` | Build version stamped into responses |
-| `TASTE_ADDR` | `localhost:8081` | gRPC address of `service-taste` |
-| `AI_ADDR` | `localhost:8082` | gRPC address of `service-ai` |
+| `TASTE_ADDR` | `localhost:8081` | HTTP health address of `service-taste` |
+| `AI_ADDR` | `localhost:8082` | HTTP health address of `service-ai` |
+| `TASTE_GRPC_ADDR` | `localhost:9091` | gRPC address the gateway dials for `service-taste` |
+| `AI_GRPC_ADDR` | `localhost:9092` | gRPC address the gateway dials for `service-ai` |
 | `REDIS_ADDR` | `localhost:6379` | Redis cache address |
 | `POSTGRES_DSN` | _(required)_ | Database URI. The gateway refuses to start without it |
 

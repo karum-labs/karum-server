@@ -1156,8 +1156,11 @@ type SkipItem struct {
 	// Model inference: the direct niche competitors the audit counted, when the
 	// reason is competitor saturation.
 	CompetitorCount int32 `protobuf:"varint,5,opt,name=competitor_count,json=competitorCount,proto3" json:"competitor_count,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Model inference: the affinity floor the candidate was measured against;
+	// zero when no floor could be established.
+	Floor         float64 `protobuf:"fixed64,6,opt,name=floor,proto3" json:"floor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SkipItem) Reset() {
@@ -1225,6 +1228,13 @@ func (x *SkipItem) GetCompetitorCount() int32 {
 	return 0
 }
 
+func (x *SkipItem) GetFloor() float64 {
+	if x != nil {
+		return x.Floor
+	}
+	return 0
+}
+
 // ScoutDoorsRequest fans out the verified insights calls for a confirmed seed.
 // Place queries always carry WKT location plus an explicit metre radius: a
 // point without a radius returns zero rows, and 0 falls back to the ~15 km
@@ -1245,9 +1255,15 @@ type ScoutDoorsRequest struct {
 	RadiusMeters int32 `protobuf:"varint,5,opt,name=radius_meters,json=radiusMeters,proto3" json:"radius_meters,omitempty"`
 	// Input: the door-shaping category tags applied as `filter.tags`; collab
 	// mode sends the non-competing tags on the same call (PLAN.md §10).
-	CategoryTags  []*v1.Tag `protobuf:"bytes,6,rep,name=category_tags,json=categoryTags,proto3" json:"category_tags,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CategoryTags []*v1.Tag `protobuf:"bytes,6,rep,name=category_tags,json=categoryTags,proto3" json:"category_tags,omitempty"`
+	// Input: the skip candidates as verified Qloo entity ids; the presets send
+	// them, so the skip batch can score them against the shortlist floor.
+	SkipCandidateIds []string `protobuf:"bytes,7,rep,name=skip_candidate_ids,json=skipCandidateIds,proto3" json:"skip_candidate_ids,omitempty"`
+	// Input: the skip candidates as venue names; free entry sends the baseline
+	// venue names, and the service resolves them to place ids.
+	SkipCandidateNames []string `protobuf:"bytes,8,rep,name=skip_candidate_names,json=skipCandidateNames,proto3" json:"skip_candidate_names,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ScoutDoorsRequest) Reset() {
@@ -1322,6 +1338,20 @@ func (x *ScoutDoorsRequest) GetCategoryTags() []*v1.Tag {
 	return nil
 }
 
+func (x *ScoutDoorsRequest) GetSkipCandidateIds() []string {
+	if x != nil {
+		return x.SkipCandidateIds
+	}
+	return nil
+}
+
+func (x *ScoutDoorsRequest) GetSkipCandidateNames() []string {
+	if x != nil {
+		return x.SkipCandidateNames
+	}
+	return nil
+}
+
 // ScoutDoorsResponse returns the door board inputs, the skip list,
 // demographics, and the evidence bundle.
 type ScoutDoorsResponse struct {
@@ -1340,7 +1370,11 @@ type ScoutDoorsResponse struct {
 	// (PLAN.md §14).
 	ErrorMessage string `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	// Input: the call records for the evidence drawer.
-	Evidence      []*v1.EvidenceCall `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty"`
+	Evidence []*v1.EvidenceCall `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty"`
+	// Input: the relative affinity floor the skip rule measured against: the
+	// minimum of the ranked pool, or the door board when the pool was
+	// unavailable. Zero when no floor could be established.
+	AffinityFloor float64 `protobuf:"fixed64,7,opt,name=affinity_floor,json=affinityFloor,proto3" json:"affinity_floor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1415,6 +1449,13 @@ func (x *ScoutDoorsResponse) GetEvidence() []*v1.EvidenceCall {
 		return x.Evidence
 	}
 	return nil
+}
+
+func (x *ScoutDoorsResponse) GetAffinityFloor() float64 {
+	if x != nil {
+		return x.AffinityFloor
+	}
+	return 0
 }
 
 // HeatmapPoint is one density cell of the flagship heatmap; the spike observed
@@ -2063,20 +2104,23 @@ const file_karum_taste_v1_taste_proto_rawDesc = "" +
 	"\foutside_city\x18\b \x01(\bR\voutsideCity\x12\x12\n" +
 	"\x04rank\x18\t \x01(\x05R\x04rank\x12!\n" +
 	"\fevidence_ids\x18\n" +
-	" \x03(\tR\vevidenceIds\"\xfd\x01\n" +
+	" \x03(\tR\vevidenceIds\"\x93\x02\n" +
 	"\bSkipItem\x122\n" +
 	"\x06entity\x18\x01 \x01(\v2\x1a.karum.common.v1.EntityRefR\x06entity\x125\n" +
 	"\baffinity\x18\x02 \x01(\v2\x19.karum.common.v1.SubScoreR\baffinity\x126\n" +
 	"\x06reason\x18\x03 \x01(\x0e2\x1e.karum.taste.v1.SkipReasonCodeR\x06reason\x12#\n" +
 	"\rreason_detail\x18\x04 \x01(\tR\freasonDetail\x12)\n" +
-	"\x10competitor_count\x18\x05 \x01(\x05R\x0fcompetitorCount\"\xb5\x02\n" +
+	"\x10competitor_count\x18\x05 \x01(\x05R\x0fcompetitorCount\x12\x14\n" +
+	"\x05floor\x18\x06 \x01(\x01R\x05floor\"\x95\x03\n" +
 	"\x11ScoutDoorsRequest\x120\n" +
 	"\x04meta\x18\x01 \x01(\v2\x1c.karum.common.v1.RequestMetaR\x04meta\x12-\n" +
 	"\x04seed\x18\x02 \x01(\v2\x19.karum.taste.v1.BrandSeedR\x04seed\x12(\n" +
 	"\x04tags\x18\x03 \x03(\v2\x14.karum.common.v1.TagR\x04tags\x125\n" +
 	"\blocation\x18\x04 \x01(\v2\x19.karum.common.v1.GeoPointR\blocation\x12#\n" +
 	"\rradius_meters\x18\x05 \x01(\x05R\fradiusMeters\x129\n" +
-	"\rcategory_tags\x18\x06 \x03(\v2\x14.karum.common.v1.TagR\fcategoryTags\"\xb7\x02\n" +
+	"\rcategory_tags\x18\x06 \x03(\v2\x14.karum.common.v1.TagR\fcategoryTags\x12,\n" +
+	"\x12skip_candidate_ids\x18\a \x03(\tR\x10skipCandidateIds\x120\n" +
+	"\x14skip_candidate_names\x18\b \x03(\tR\x12skipCandidateNames\"\xde\x02\n" +
 	"\x12ScoutDoorsResponse\x123\n" +
 	"\x05doors\x18\x01 \x03(\v2\x1d.karum.taste.v1.DoorCandidateR\x05doors\x125\n" +
 	"\tskip_list\x18\x02 \x03(\v2\x18.karum.taste.v1.SkipItemR\bskipList\x12\x1a\n" +
@@ -2084,7 +2128,8 @@ const file_karum_taste_v1_taste_proto_rawDesc = "" +
 	"\n" +
 	"error_code\x18\x04 \x01(\x0e2\x1a.karum.common.v1.ErrorCodeR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x129\n" +
-	"\bevidence\x18\x06 \x03(\v2\x1d.karum.common.v1.EvidenceCallR\bevidence\"\xc0\x01\n" +
+	"\bevidence\x18\x06 \x03(\v2\x1d.karum.common.v1.EvidenceCallR\bevidence\x12%\n" +
+	"\x0eaffinity_floor\x18\a \x01(\x01R\raffinityFloor\"\xc0\x01\n" +
 	"\fHeatmapPoint\x125\n" +
 	"\blocation\x18\x01 \x01(\v2\x19.karum.common.v1.GeoPointR\blocation\x12\x18\n" +
 	"\ageohash\x18\x02 \x01(\tR\ageohash\x12\x1a\n" +

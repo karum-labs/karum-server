@@ -96,18 +96,21 @@ func (c *Clients) ScoutDoors(ctx context.Context, req orchestrator.ScoutRequest)
 		Seed: &tastev1.BrandSeed{
 			Entities: entities(req.Seed),
 		},
-		Location:     point(req.Point),
-		RadiusMeters: int32(req.RadiusMeters),
-		CategoryTags: urns(req.CategoryTags),
+		Location:           point(req.Point),
+		RadiusMeters:       int32(req.RadiusMeters),
+		CategoryTags:       urns(req.CategoryTags),
+		SkipCandidateIds:   append([]string(nil), req.SkipCandidateIDs...),
+		SkipCandidateNames: append([]string(nil), req.SkipCandidateNames...),
 	})
 	if err != nil {
 		return orchestrator.ScoutResult{}, rpcErr(err)
 	}
 	out := orchestrator.ScoutResult{
-		Warnings:     resp.GetWarnings(),
-		ErrorCode:    codeName(resp.GetErrorCode()),
-		ErrorMessage: resp.GetErrorMessage(),
-		Evidence:     evidence(resp.GetEvidence()),
+		Warnings:      resp.GetWarnings(),
+		ErrorCode:     codeName(resp.GetErrorCode()),
+		ErrorMessage:  resp.GetErrorMessage(),
+		Evidence:      evidence(resp.GetEvidence()),
+		AffinityFloor: resp.GetAffinityFloor(),
 	}
 	for _, door := range resp.GetDoors() {
 		entity := fromEntity(door.GetEntity())
@@ -131,7 +134,9 @@ func (c *Clients) ScoutDoors(ctx context.Context, req orchestrator.ScoutRequest)
 		out.Skip = append(out.Skip, orchestrator.SkipItem{
 			Entity:          fromEntity(item.GetEntity()),
 			Reason:          skipReason(item.GetReason()),
+			ReasonDetail:    item.GetReasonDetail(),
 			RawAffinity:     item.GetAffinity().GetRawValue(),
+			Floor:           item.GetFloor(),
 			CompetitorCount: int(item.GetCompetitorCount()),
 		})
 	}

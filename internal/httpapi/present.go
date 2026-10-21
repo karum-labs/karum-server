@@ -142,6 +142,7 @@ type skipBody struct {
 	ID              string  `json:"id"`
 	Name            string  `json:"name"`
 	Reason          string  `json:"reason"`
+	ReasonDetail    string  `json:"reason_detail,omitempty"`
 	RawAffinity     float64 `json:"raw_affinity,omitempty"`
 	Floor           float64 `json:"floor,omitempty"`
 	CompetitorCount int     `json:"competitor_count,omitempty"`
@@ -257,7 +258,8 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 	for _, skip := range run.Skip {
 		body := skipBody{
 			ID: skip.Entity.ID, Name: skip.Entity.Name, Reason: skip.Reason,
-			RawAffinity: skip.RawAffinity, Floor: skip.Floor, CompetitorCount: skip.CompetitorCount,
+			ReasonDetail: skip.ReasonDetail,
+			RawAffinity:  skip.RawAffinity, Floor: skip.Floor, CompetitorCount: skip.CompetitorCount,
 		}
 		if skip.Entity.Place.HasLocation() {
 			body.Lat = skip.Entity.Place.Lat

@@ -4,10 +4,16 @@ package resilience
 
 import (
 	"context"
+	"errors"
+	"io"
+	"math/rand/v2"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Breaker opens after consecutive failures and fails fast until the cooldown
@@ -51,7 +57,9 @@ func (b *Breaker) Allow() bool {
 	return false
 }
 
-// Record counts a failure or clears the streak on success.
+// Record counts a failure or clears the streak on success. A cancellation is
+// not an upstream failure, so it is ignored: the streak stays as it is and
+// five aborted calls never open the circuit.
 func (b *Breaker) Record(err error) {
 	if b == nil {
 		return
@@ -61,6 +69,9 @@ func (b *Breaker) Record(err error) {
 	if err == nil {
 		b.failures = 0
 		b.openUntil = time.Time{}
+		return
+	}
+	if IsCancellation(err) {
 		return
 	}
 	b.failures++
@@ -86,6 +97,136 @@ func Do(ctx context.Context, deadline, fallback time.Duration, fn func(context.C
 	return fn(child)
 }
 
+// retryAttempts is how many times a call is tried: the first attempt plus
+// one extra. A second attempt is enough to ride out a blip; more would
+// stretch the call past the deadline the caller asked for.
+const retryAttempts = 2
+
+// retryBackoff is the base pause between the two attempts. The pause is
+// jittered so parallel calls do not retry in lockstep.
+const retryBackoff = 50 * time.Millisecond
+
+// DoWithRetry runs fn with a deadline and tries it once more when the
+// failure is a transient transport failure: a gRPC Unavailable or
+// DeadlineExceeded, or a dropped connection.
+//
+// A business failure never reaches this helper as an error: it arrives as a
+// code on the response. A failure the caller caused, a cancelled or expired
+// context, is returned as it is and is never retried.
+//
+// Both attempts share the call deadline, so the retry can never push the
+// call past the deadline the caller asked for.
+func DoWithRetry(ctx context.Context, deadline, fallback time.Duration, fn func(context.Context) error) error {
+	if deadline <= 0 {
+		deadline = fallback
+	}
+	if deadline <= 0 {
+		deadline = 8 * time.Second
+	}
+	child, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	var err error
+	for attempt := 1; attempt <= retryAttempts; attempt++ {
+		err = fn(child)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			// The caller cancelled the call or its own deadline passed: the
+			// upstream is not at fault and a retry would not help.
+			return err
+		}
+		if child.Err() != nil {
+			// The call deadline is spent; a retry would overrun it.
+			return err
+		}
+		if !IsTransient(err) {
+			return err
+		}
+		if attempt == retryAttempts {
+			return err
+		}
+		if !sleep(ctx, child, retryPause(attempt)) {
+			return err
+		}
+	}
+	return err
+}
+
+// sleep waits out the pause before the next attempt. It reports false when
+// the call was cancelled while waiting.
+func sleep(ctx, child context.Context, pause time.Duration) bool {
+	timer := time.NewTimer(pause)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-child.Done():
+		return false
+	}
+}
+
+// retryPause is the jittered pause before the next attempt.
+func retryPause(attempt int) time.Duration {
+	base := retryBackoff * time.Duration(attempt)
+	return base + time.Duration(rand.IntN(int(retryBackoff)))
+}
+
+// IsTransient reports whether err is a transport failure worth one more
+// attempt: a gRPC Unavailable or DeadlineExceeded status, or a dropped
+// connection. A business failure is not transient: it arrives as a code on
+// the response, not as an error.
+func IsTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	var statusErr interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &statusErr) {
+		switch statusErr.GRPCStatus().Code() {
+		case codes.Unavailable, codes.DeadlineExceeded:
+			return true
+		}
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE)
+}
+
+// IsCancellation reports whether err is the caller's own cancellation: a
+// cancelled context, or one whose deadline passed. A cancelled call says
+// nothing about the upstream, so a breaker must not count it as a failure.
+func IsCancellation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return IsCanceled(err)
+}
+
+// IsCanceled reports whether err is a cancellation and nothing else: a
+// cancelled context, or a gRPC call the caller canceled.
+func IsCanceled(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	var statusErr interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &statusErr) {
+		return statusErr.GRPCStatus().Code() == codes.Canceled
+	}
+	return false
+}
+
 // Limiter enforces a per-IP limit and a global limit.
 type Limiter struct {
 	global *rate.Limiter
@@ -93,7 +234,20 @@ type Limiter struct {
 	burst  int
 	mu     sync.Mutex
 	ips    map[string]*rate.Limiter
+	// seen records the last request per IP so an unbounded key space cannot
+	// grow the map forever. The map is swept when it reaches limit.
+	seen  map[string]time.Time
+	limit int
+	now   func() time.Time
 }
+
+// limiterIPLimit bounds the per-IP map. A public host sees many addresses;
+// the map keeps the most recently active ones and drops the rest.
+const limiterIPLimit = 10000
+
+// limiterIPIdle is how long an IP bucket may sit unused before a sweep is
+// allowed to drop it.
+const limiterIPIdle = 10 * time.Minute
 
 // NewLimiter builds the two limits. perIP and global are events per second.
 func NewLimiter(perIP float64, perIPBurst int, global float64, globalBurst int) *Limiter {
@@ -114,6 +268,9 @@ func NewLimiter(perIP float64, perIPBurst int, global float64, globalBurst int) 
 		perIP:  rate.Limit(perIP),
 		burst:  perIPBurst,
 		ips:    map[string]*rate.Limiter{},
+		seen:   map[string]time.Time{},
+		limit:  limiterIPLimit,
+		now:    time.Now,
 	}
 }
 
@@ -123,17 +280,63 @@ func (l *Limiter) Allow(ip string) bool {
 	if l == nil {
 		return true
 	}
+	now := l.now()
 	l.mu.Lock()
 	lim := l.ips[ip]
 	if lim == nil {
+		if len(l.ips) >= l.limit {
+			l.sweepLocked(now)
+		}
 		lim = rate.NewLimiter(l.perIP, l.burst)
 		l.ips[ip] = lim
 	}
+	l.seen[ip] = now
 	l.mu.Unlock()
 	if !lim.Allow() {
 		return false
 	}
 	return l.global.Allow()
+}
+
+// sweepLocked drops idle buckets, then the least recently seen ones, until
+// the map is below its limit. The caller holds mu.
+func (l *Limiter) sweepLocked(now time.Time) {
+	cutoff := now.Add(-limiterIPIdle)
+	for ip, last := range l.seen {
+		if last.Before(cutoff) {
+			delete(l.seen, ip)
+			delete(l.ips, ip)
+		}
+	}
+	for len(l.ips) >= l.limit {
+		oldestIP := ""
+		var oldest time.Time
+		for ip, last := range l.seen {
+			if oldestIP == "" || last.Before(oldest) {
+				oldestIP, oldest = ip, last
+			}
+		}
+		if oldestIP == "" {
+			// A bucket exists without a seen entry; drop it rather than spin.
+			for ip := range l.ips {
+				delete(l.ips, ip)
+				break
+			}
+			continue
+		}
+		delete(l.seen, oldestIP)
+		delete(l.ips, oldestIP)
+	}
+}
+
+// Size reports how many per-IP buckets are held, for the eviction test.
+func (l *Limiter) Size() int {
+	if l == nil {
+		return 0
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.ips)
 }
 
 // Idempotent is one stored create.
