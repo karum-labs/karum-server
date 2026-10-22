@@ -182,9 +182,17 @@ func IsTransient(err error) bool {
 	if err == nil {
 		return false
 	}
-	var statusErr interface{ GRPCStatus() *status.Status }
-	if errors.As(err, &statusErr) {
-		switch statusErr.GRPCStatus().Code() {
+	if statusErr, ok := err.(interface{ StatusCode() int }); ok {
+		// An HTTP-status error: 429 and 5xx are transient, 4xx is permanent.
+		code := statusErr.StatusCode()
+		if code == 429 || code >= 500 {
+			return true
+		}
+		return false
+	}
+	var grpcStatus interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &grpcStatus) {
+		switch grpcStatus.GRPCStatus().Code() {
 		case codes.Unavailable, codes.DeadlineExceeded:
 			return true
 		}

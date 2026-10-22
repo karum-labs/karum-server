@@ -172,9 +172,10 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 	err := r.callAI(ctx, func(ctx context.Context) error {
 		var callErr error
 		baseline, callErr = r.agent.LlmOnlyBaseline(ctx, BaselineRequest{
-			Brand: req.Brand,
-			City:  req.City,
-			Mode:  req.Mode,
+			Brand:     req.Brand,
+			City:      req.City,
+			Mode:      req.Mode,
+			MaxWords:  160,
 		})
 		return callErr
 	})
@@ -334,6 +335,7 @@ func (r *Runner) RegenerateDoor(
 			City:        run.City,
 			Mode:        run.Mode,
 			EvidenceIDs: evidenceIDs,
+			MaxWords:    220,
 		})
 		return callErr
 	})
@@ -418,6 +420,7 @@ func (r *Runner) draftDoor(
 			Finding: finding,
 			City:    req.City,
 			Mode:    run.Mode,
+			MaxWords: 220,
 			// The run's evidence set is the allow-set a cited id must belong
 			// to; an id outside it is dropped (PLAN.md §17).
 			EvidenceIDs: runEvidenceIDs(run, door),

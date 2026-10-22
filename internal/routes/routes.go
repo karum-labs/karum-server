@@ -18,6 +18,24 @@ import (
 // Attribution is the credit stored beside a Routes payload.
 const Attribution = "Map data © Google"
 
+// APIError is a non-2xx response from computeRoutes. The status and body are
+// carried so the caller can decide whether to retry (429 and 5xx are
+// transient; 4xx is permanent).
+type APIError struct {
+	Status int
+	Body   string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("routes status %d: %s", e.Status, e.Body)
+}
+
+// StatusCode reports the HTTP status so the resilience layer can treat 429
+// and 5xx as transient and 4xx as permanent.
+func (e *APIError) StatusCode() int {
+	return e.Status
+}
+
 // Stop is one door that can be a waypoint.
 type Stop struct {
 	ID   string
@@ -133,7 +151,7 @@ func (c Client) compute(ctx context.Context, stops []Stop) (Plan, error) {
 	}
 	raw, err := json.Marshal(reqBody)
 	if err != nil {
-		return Plan{Failed: true, Error: err.Error()}, nil
+		return Plan{}, fmt.Errorf("routes request: %w", err)
 	}
 	endpoint := c.Endpoint
 	if endpoint == "" {
@@ -141,7 +159,7 @@ func (c Client) compute(ctx context.Context, stops []Stop) (Plan, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
-		return Plan{Failed: true, Error: err.Error()}, nil
+		return Plan{}, fmt.Errorf("routes request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Goog-Api-Key", c.Key)
@@ -152,7 +170,7 @@ func (c Client) compute(ctx context.Context, stops []Stop) (Plan, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Plan{Failed: true, Error: err.Error(), Attribution: Attribution}, nil
+		return Plan{}, err
 	}
 	defer resp.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -160,7 +178,7 @@ func (c Client) compute(ctx context.Context, stops []Stop) (Plan, error) {
 		return Plan{Failed: true, Error: err.Error(), Attribution: Attribution}, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return Plan{Failed: true, Error: fmt.Sprintf("routes status %d", resp.StatusCode), Attribution: Attribution}, nil
+		return Plan{}, &APIError{Status: resp.StatusCode, Body: string(payload)}
 	}
 	var parsed computeResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {

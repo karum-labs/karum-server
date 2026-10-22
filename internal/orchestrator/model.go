@@ -64,6 +64,28 @@ type SubScore struct {
 	Inputs   []string
 }
 
+// Explainability is one seed input's contribution to a door's affinity,
+// straight from Qloo's explainability output.
+type Explainability struct {
+	EntityID string
+	Label    string
+	Score    float64
+}
+
+// DemographicBucket is one age bucket's delta versus the population baseline.
+type DemographicBucket struct {
+	Label string
+	Delta float64
+}
+
+// Demographics is one door's demographic alignment inputs: the age buckets
+// and the male and female deltas.
+type Demographics struct {
+	AgeBuckets  []DemographicBucket
+	MaleDelta   float64
+	FemaleDelta float64
+}
+
 // Door is one recommended door from service-taste.
 type Door struct {
 	Entity               SeedEntity
@@ -73,6 +95,12 @@ type Door struct {
 	DemographicAlignment *SubScore
 	SharedTags           []Tag
 	EvidenceIDs          []string
+	// Explainability is the per-input contribution list behind the affinity.
+	Explainability []Explainability
+	// Demographics is the door's demographic profile, when Qloo reported one.
+	Demographics *Demographics
+	// DistanceMeters is the straight-line distance from the preset point.
+	DistanceMeters float64
 	// Composite is S_door, assembled by the gateway. Value is 0–1 and
 	// RawValue is the 0–100 display number.
 	Composite *SubScore
@@ -204,6 +232,9 @@ type DraftRequest struct {
 	City        string
 	Mode        Mode
 	EvidenceIDs []string
+	// MaxWords is the hard cap per text the service enforces
+	// (agent.proto: the cap so a judge can finish the read).
+	MaxWords int
 }
 
 // DraftResult is the script, battlecard, SKU, and mode paragraph.
@@ -226,6 +257,8 @@ type BaselineRequest struct {
 	Brand BrandContext
 	City  string
 	Mode  Mode
+	// MaxWords is the hard cap for the baseline text the service enforces.
+	MaxWords int
 }
 
 // BaselineResult is stored beside the Qloo result and labeled ungrounded.

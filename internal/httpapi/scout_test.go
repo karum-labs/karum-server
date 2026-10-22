@@ -54,8 +54,17 @@ func (t *httpTaste) ScoutDoors(ctx context.Context, _ orchestrator.ScoutRequest)
 			Rank:        1,
 			Affinity:    orchestrator.SubScore{Name: "cultural_affinity", Value: 1, RawValue: 0.91},
 			EvidenceIDs: []string{"ev-0001"},
-			Lat:         30.26,
-			Lng:         -97.73,
+			Explainability: []orchestrator.Explainability{
+				{EntityID: "e-1", Label: "Ilegal Mezcal", Score: 0.62},
+			},
+			Demographics: &orchestrator.Demographics{
+				AgeBuckets:  []orchestrator.DemographicBucket{{Label: "25_34", Delta: 0.12}},
+				MaleDelta:   0.03,
+				FemaleDelta: -0.04,
+			},
+			DistanceMeters: 820,
+			Lat:            30.26,
+			Lng:            -97.73,
 		}},
 		Skip: []orchestrator.SkipItem{{
 			Entity: orchestrator.SeedEntity{
@@ -182,6 +191,24 @@ func TestScoutCreatesAJobAndGetReturnsTheCampaign(t *testing.T) {
 	baseline, _ := body["baseline"].(map[string]any)
 	if baseline["ungrounded"] != true {
 		t.Fatalf("baseline = %+v", baseline)
+	}
+}
+
+// A campaign header exists (it was seeded by a preset) but no run was ever
+// started for it: the gateway must answer 404, not invent an "absent" state.
+func TestGetCampaignWithNoRunReturnsNotFound(t *testing.T) {
+	_, _, srv, _ := testStack(config.ModeFixture)
+	defer srv.Close()
+	get, err := http.Get(srv.URL + "/api/v1/campaigns/cmp-austin-wholesale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if get.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, wanted 404", get.StatusCode)
+	}
+	body := decode(t, get)
+	if body["error"] != "not_found" || body["message"] != "no run for this campaign" {
+		t.Fatalf("body = %+v", body)
 	}
 }
 
@@ -583,6 +610,58 @@ func TestCampaignPayloadCarriesMenuFindingsAndHeatmapCells(t *testing.T) {
 	skip, _ := skips[0].(map[string]any)
 	if skip["lat"] != 30.27 || skip["lng"] != -97.72 {
 		t.Fatalf("skip point = %+v", skip)
+	}
+}
+
+// The gateway must not drop the Qloo evidence service-taste computed: the
+// explainability contributions, the demographic profile, and the distance
+// are what the "How we know" drawer renders (PLAN.md §34).
+func TestCampaignPayloadCarriesTheQlooEvidence(t *testing.T) {
+	_, _, srv, _ := testStack(config.ModeFixture)
+	defer srv.Close()
+	created := decode(t, postJSON(t, srv, "/api/v1/scout", "evidence-1", map[string]any{"preset_id": "austin-wholesale"}))
+	id, _ := created["job_id"].(string)
+	if id == "" {
+		t.Fatalf("job = %+v", created)
+	}
+	get, err := http.Get(srv.URL + "/api/v1/scout/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := decode(t, get)
+	doors, _ := body["doors"].([]any)
+	if len(doors) != 1 {
+		t.Fatalf("doors = %+v", body["doors"])
+	}
+	door, _ := doors[0].(map[string]any)
+
+	contributions, _ := door["explainability"].([]any)
+	if len(contributions) != 1 {
+		t.Fatalf("explainability = %+v", door["explainability"])
+	}
+	contribution, _ := contributions[0].(map[string]any)
+	if contribution["entity_id"] != "e-1" || contribution["label"] != "Ilegal Mezcal" ||
+		contribution["score"] != 0.62 {
+		t.Fatalf("contribution = %+v", contribution)
+	}
+
+	demo, ok := door["demographics"].(map[string]any)
+	if !ok {
+		t.Fatalf("door has no demographics: %+v", door)
+	}
+	buckets, _ := demo["age_buckets"].([]any)
+	if len(buckets) != 1 {
+		t.Fatalf("age_buckets = %+v", demo["age_buckets"])
+	}
+	bucket, _ := buckets[0].(map[string]any)
+	if bucket["label"] != "25_34" || bucket["delta"] != 0.12 {
+		t.Fatalf("bucket = %+v", bucket)
+	}
+	if demo["male_delta"] != 0.03 || demo["female_delta"] != -0.04 {
+		t.Fatalf("deltas = %+v", demo)
+	}
+	if door["distance_meters"] != float64(820) {
+		t.Fatalf("distance_meters = %+v", door["distance_meters"])
 	}
 }
 

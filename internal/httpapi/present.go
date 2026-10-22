@@ -56,6 +56,32 @@ type doorBody struct {
 	Pitch       *pitchBody   `json:"pitch,omitempty"`
 	Menu        *menuBody    `json:"menu,omitempty"`
 	EvidenceIDs []string     `json:"evidence_ids"`
+	// Explainability is the per-input contribution list behind the affinity.
+	Explainability []explainBody `json:"explainability,omitempty"`
+	// Demographics is the door's demographic profile, when Qloo reported one.
+	Demographics *demoBody `json:"demographics,omitempty"`
+	// DistanceMeters is the straight-line distance from the preset point.
+	DistanceMeters float64 `json:"distance_meters,omitempty"`
+}
+
+// explainBody is one seed input's contribution to the door's affinity.
+type explainBody struct {
+	EntityID string  `json:"entity_id"`
+	Label    string  `json:"label,omitempty"`
+	Score    float64 `json:"score"`
+}
+
+// demoBody is one door's demographic alignment inputs.
+type demoBody struct {
+	AgeBuckets  []bucketBody `json:"age_buckets,omitempty"`
+	MaleDelta   float64      `json:"male_delta"`
+	FemaleDelta float64      `json:"female_delta"`
+}
+
+// bucketBody is one age bucket's delta versus the population baseline.
+type bucketBody struct {
+	Label string  `json:"label"`
+	Delta float64 `json:"delta"`
 }
 
 type menuBody struct {
@@ -361,6 +387,24 @@ func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrat
 	if body.SharedTags == nil {
 		body.SharedTags = []tagBody{}
 	}
+	for _, item := range door.Explainability {
+		body.Explainability = append(body.Explainability, explainBody{
+			EntityID: item.EntityID, Label: item.Label, Score: item.Score,
+		})
+	}
+	if door.Demographics != nil {
+		demo := &demoBody{
+			MaleDelta:   door.Demographics.MaleDelta,
+			FemaleDelta: door.Demographics.FemaleDelta,
+		}
+		for _, bucket := range door.Demographics.AgeBuckets {
+			demo.AgeBuckets = append(demo.AgeBuckets, bucketBody{
+				Label: bucket.Label, Delta: bucket.Delta,
+			})
+		}
+		body.Demographics = demo
+	}
+	body.DistanceMeters = door.DistanceMeters
 	if door.Enrichment != nil {
 		body.Enrichment = &enrichBody{
 			Address: door.Enrichment.Address, Hours: door.Enrichment.Hours,

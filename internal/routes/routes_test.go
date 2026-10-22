@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -87,11 +88,51 @@ func TestPlanIsolatesRoutesError(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, err := (Client{Key: "k", Endpoint: srv.URL}).Plan(context.Background(), "collab", twoStops())
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatalf("want a 502 error, got plan=%+v", got)
 	}
-	if !got.Failed || got.Error == "" {
-		t.Fatalf("plan = %+v, want a failed plan and a nil error", got)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != 502 {
+		t.Fatalf("want a 502 APIError, got %v", err)
+	}
+	if got.Failed || got.Error != "" || got.Polyline != "" {
+		t.Fatalf("a transport failure must not mark the plan failed: %+v", got)
+	}
+}
+
+func TestPlanReturnsATransient503Once(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, "overloaded", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	got, err := (Client{Key: "k", Endpoint: srv.URL}).Plan(context.Background(), "wholesale", twoStops())
+	if attempts != 1 {
+		t.Fatalf("want 1 attempt (retry is the runner's job), got %d", attempts)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != 503 {
+		t.Fatalf("want a 503 APIError, got %v", err)
+	}
+	if got.Failed || got.Error != "" {
+		t.Fatalf("a transport failure must not mark the plan failed: %+v", got)
+	}
+}
+
+func TestPlanDoesNotRetryPermanentFailures(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, "not enabled", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	_, err := (Client{Key: "k", Endpoint: srv.URL}).Plan(context.Background(), "wholesale", twoStops())
+	if attempts != 1 {
+		t.Fatalf("want 1 attempt (no retry on 403), got %d", attempts)
+	}
+	if err == nil {
+		t.Fatal("want a 403 error")
 	}
 }
 

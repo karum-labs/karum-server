@@ -118,7 +118,7 @@ func FromEnv() (*Config, error) {
 		TasteTimeout:     getenvDuration("GATEWAY_TASTE_TIMEOUT", 8*time.Second),
 		AITimeout:        getenvDuration("GATEWAY_AI_TIMEOUT", 30*time.Second),
 		PlacesTimeout:    getenvDuration("GATEWAY_PLACES_TIMEOUT", 5*time.Second),
-		RoutesTimeout:    getenvDuration("GATEWAY_ROUTES_TIMEOUT", 5*time.Second),
+		RoutesTimeout:    getenvDuration("GATEWAY_ROUTES_TIMEOUT", 15*time.Second),
 		JudgeEmail:       strings.TrimSpace(os.Getenv("JUDGE_EMAIL")),
 		JudgePassword:    os.Getenv("JUDGE_PASSWORD"),
 		JudgeDisplayName: firstNonEmpty(os.Getenv("JUDGE_DISPLAY_NAME"), "Karum Judge"),

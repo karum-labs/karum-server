@@ -29,6 +29,15 @@ func (f *tasteFake) ScoutDoors(ctx context.Context, req *tastev1.ScoutDoorsReque
 			Entity:   &commonv1.EntityRef{Id: "d-1", Type: "urn:entity:place", Name: "Whisler's"},
 			Affinity: &commonv1.SubScore{Name: "cultural_affinity", Value: 1, RawValue: 0.91},
 			Rank:     1,
+			Explainability: []*tastev1.ExplainabilityContribution{{
+				EntityId: "e-1", Label: "Ilegal Mezcal", Score: 0.62,
+			}},
+			Demographics: &tastev1.DemographicProfile{
+				AgeBuckets:  []*tastev1.DemographicBucket{{Label: "25_34", Delta: 0.12}},
+				MaleDelta:   0.03,
+				FemaleDelta: -0.04,
+			},
+			DistanceMeters: 820,
 		}},
 		SkipList: []*tastev1.SkipItem{{
 			Entity: &commonv1.EntityRef{Id: "d-9", Name: "Maggie Mae's"},
@@ -118,6 +127,22 @@ func TestClientRoundTripsScoutAndHonorsTheDeadline(t *testing.T) {
 	}
 	if !tasteSrv.hadDeadline {
 		t.Fatal("the RPC context had no deadline")
+	}
+
+	// The evidence service-taste computed must survive the boundary.
+	door := scout.Doors[0]
+	if len(door.Explainability) != 1 || door.Explainability[0].EntityID != "e-1" ||
+		door.Explainability[0].Label != "Ilegal Mezcal" || door.Explainability[0].Score != 0.62 {
+		t.Fatalf("explainability = %+v", door.Explainability)
+	}
+	if door.Demographics == nil || len(door.Demographics.AgeBuckets) != 1 ||
+		door.Demographics.AgeBuckets[0].Label != "25_34" ||
+		door.Demographics.AgeBuckets[0].Delta != 0.12 ||
+		door.Demographics.MaleDelta != 0.03 || door.Demographics.FemaleDelta != -0.04 {
+		t.Fatalf("demographics = %+v", door.Demographics)
+	}
+	if door.DistanceMeters != 820 {
+		t.Fatalf("distance = %+v", door.DistanceMeters)
 	}
 
 	seed, err := clients.ResolveBrandSeed(context.Background(), orchestrator.SeedQuery{BrandQuery: "Sola"})

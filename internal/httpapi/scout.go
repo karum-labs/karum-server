@@ -235,13 +235,7 @@ func (h *Handler) getCampaign(c *gin.Context) {
 	}
 	run, ok := h.store.NewestForCampaign(record.ID)
 	if !ok {
-		c.JSON(http.StatusOK, gin.H{
-			"campaign_id": record.ID,
-			"preset_id":   record.PresetID,
-			"city":        record.City,
-			"mode":        record.Mode,
-			"state":       "absent",
-		})
+		writeError(c, http.StatusNotFound, "not_found", "no run for this campaign")
 		return
 	}
 	c.JSON(http.StatusOK, campaignOf(run))

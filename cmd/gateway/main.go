@@ -216,7 +216,10 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 		runner.WithPlaces(places.Client{Key: cfg.PlacesAPIKey})
 	}
 	if cfg.RoutesAPIKey != "" {
-		runner.WithRoutes(routes.Client{Key: cfg.RoutesAPIKey})
+		runner.WithRoutes(routes.Client{
+			Key:   cfg.RoutesAPIKey,
+			HTTP:  &http.Client{Timeout: 20 * time.Second},
+		})
 	}
 
 	cache := geocode.NewTieredCache(cfg.RedisAddr)

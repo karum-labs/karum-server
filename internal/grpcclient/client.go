@@ -125,6 +125,9 @@ func (c *Clients) ScoutDoors(ctx context.Context, req orchestrator.ScoutRequest)
 			DemographicAlignment: fromScorePtr(door.GetDemographicAlignment()),
 			SharedTags:           fromTags(door.GetSharedTags()),
 			EvidenceIDs:          append([]string(nil), door.GetEvidenceIds()...),
+			Explainability:       fromExplainability(door.GetExplainability()),
+			Demographics:         fromDemographics(door.GetDemographics()),
+			DistanceMeters:       door.GetDistanceMeters(),
 			OutsideCity:          door.GetOutsideCity(),
 			Lat:                  lat,
 			Lng:                  lng,
@@ -261,8 +264,9 @@ func (c *Clients) AuditMenu(ctx context.Context, req orchestrator.AuditRequest) 
 // DraftDoorPitch implements the draft half of orchestrator.AgentClient.
 func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequest) (orchestrator.DraftResult, error) {
 	resp, err := c.agent.DraftDoorPitch(ctx, &agentv1.DraftDoorPitchRequest{
-		Mode: campaignMode(req.Mode),
-		City: req.City,
+		Mode:    campaignMode(req.Mode),
+		City:    req.City,
+		MaxWords: int32(req.MaxWords),
 		Brand: &agentv1.BrandContext{
 			Name: req.Brand.Name,
 			Skus: skus(req.Brand.SKUs),
@@ -300,9 +304,10 @@ func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequ
 // LlmOnlyBaseline implements the baseline half of orchestrator.AgentClient.
 func (c *Clients) LlmOnlyBaseline(ctx context.Context, req orchestrator.BaselineRequest) (orchestrator.BaselineResult, error) {
 	resp, err := c.agent.LlmOnlyBaseline(ctx, &agentv1.LlmOnlyBaselineRequest{
-		Brand: &agentv1.BrandContext{Name: req.Brand.Name, Skus: skus(req.Brand.SKUs)},
-		City:  req.City,
-		Mode:  campaignMode(req.Mode),
+		Brand:     &agentv1.BrandContext{Name: req.Brand.Name, Skus: skus(req.Brand.SKUs)},
+		City:      req.City,
+		Mode:      campaignMode(req.Mode),
+		MaxWords:  int32(req.MaxWords),
 	})
 	if err != nil {
 		return orchestrator.BaselineResult{}, rpcErr(err)
@@ -461,6 +466,43 @@ func fromTags(items []*commonv1.Tag) []orchestrator.Tag {
 			continue
 		}
 		out = append(out, orchestrator.Tag{URN: item.GetUrn(), Label: item.GetLabel()})
+	}
+	return out
+}
+
+// fromExplainability maps the per-input contributions Qloo reports for a
+// door's affinity. The list is dropped, never emptied: an empty list means
+// Qloo reported no contribution, and the drawer says so.
+func fromExplainability(items []*tastev1.ExplainabilityContribution) []orchestrator.Explainability {
+	out := make([]orchestrator.Explainability, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		out = append(out, orchestrator.Explainability{
+			EntityID: item.GetEntityId(), Label: item.GetLabel(), Score: item.GetScore(),
+		})
+	}
+	return out
+}
+
+// fromDemographics maps one door's demographic profile. A missing profile
+// stays nil so the client can render "unknown" rather than zero deltas.
+func fromDemographics(profile *tastev1.DemographicProfile) *orchestrator.Demographics {
+	if profile == nil {
+		return nil
+	}
+	out := &orchestrator.Demographics{
+		MaleDelta:   profile.GetMaleDelta(),
+		FemaleDelta: profile.GetFemaleDelta(),
+	}
+	for _, bucket := range profile.GetAgeBuckets() {
+		if bucket == nil {
+			continue
+		}
+		out.AgeBuckets = append(out.AgeBuckets, orchestrator.DemographicBucket{
+			Label: bucket.GetLabel(), Delta: bucket.GetDelta(),
+		})
 	}
 	return out
 }

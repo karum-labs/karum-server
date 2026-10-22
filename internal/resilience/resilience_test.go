@@ -157,6 +157,30 @@ func TestLimiterEvictsTheOldestIPBuckets(t *testing.T) {
 	}
 }
 
+type statusError struct{ code int }
+
+func (e *statusError) Error() string   { return "status error" }
+func (e *statusError) StatusCode() int { return e.code }
+
+func TestIsTransientRespectsHTTPStatus(t *testing.T) {
+	for _, code := range []int{429, 500, 502, 503} {
+		if !IsTransient(&statusError{code}) {
+			t.Fatalf("status %d must be transient", code)
+		}
+	}
+	for _, code := range []int{400, 403, 404} {
+		if IsTransient(&statusError{code}) {
+			t.Fatalf("status %d must be permanent", code)
+		}
+	}
+	if IsTransient(errors.New("plain")) {
+		t.Fatal("a plain error must not be transient")
+	}
+	if IsTransient(&statusError{0}) {
+		t.Fatal("an unknown status must not be transient")
+	}
+}
+
 // failingStore is a store whose database is unreachable.
 type failingStore struct{}
 
