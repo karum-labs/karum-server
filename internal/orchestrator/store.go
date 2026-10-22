@@ -207,6 +207,31 @@ func (s *Store) NewestForCampaign(campaignID string) (*Run, bool) {
 	return best.clone(), true
 }
 
+// LinkPresets attaches an account id to the preseeded preset campaigns.
+// `cmd/gateway/main.go` calls it right after seeding the judge account so
+// the in-memory campaign records match the SQL `account_id` column that
+// `persist.LinkCampaigns` already sets. The handler layer then scopes
+// `GET /campaigns/:id` and the preset-replay shortcut to that owner.
+//
+// Preset ids that are not in the store are skipped silently; the test
+// harness never calls this, so its presets stay owner-less and the
+// anonymous-replay shortcut continues to fire there (PLAN.md §49).
+func (s *Store) LinkPresets(accountID string, campaignIDs []string) {
+	if accountID == "" || len(campaignIDs) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range campaignIDs {
+		record, ok := s.campaigns[id]
+		if !ok {
+			continue
+		}
+		record.AccountID = accountID
+		s.campaigns[id] = record
+	}
+}
+
 // UpsertCampaign stores a campaign header without touching its runs.
 func (s *Store) UpsertCampaign(record CampaignRecord) {
 	if record.ID == "" {

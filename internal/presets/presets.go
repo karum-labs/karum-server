@@ -145,3 +145,9 @@ func (c *Catalog) All() []Preset {
 func CampaignID(presetID string) string {
 	return "cmp-" + presetID
 }
+
+// JudgeAccountID is the id of the preseeded judge account the four preset
+// campaigns belong to. The gateway seeds it in `cmd/gateway/main.go` and
+// uses it to scope `GET /campaigns/:id`: an anonymous visitor cannot read
+// the judge's prior runs through the shared preset campaign ids.
+const JudgeAccountID = "acct-judge"

@@ -61,7 +61,23 @@ func (h *Handler) postScout(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "validation", err.Error())
 		return
 	}
-	if hasPreset && !req.FreeEntry && !req.Rerun {
+	// The preset-replay shortcut returns a stored run keyed by preset id.
+	// For a preset campaign that belongs to an account (the judge's four),
+	// only serve the replay to that owner — an anonymous visitor would
+	// otherwise read the judge's prior attempt (PLAN.md §49). An owner-less
+	// preset (test harness, local dev before judge seeding) keeps replaying.
+	callerAccountID := ""
+	if account, ok := auth.Current(c); ok {
+		callerAccountID = account.ID
+	}
+	presetOwnerID := ""
+	if hasPreset {
+		if record, ok := h.store.Campaign(presets.CampaignID(req.PresetID)); ok {
+			presetOwnerID = record.AccountID
+		}
+	}
+	presetReplayAllowed := presetOwnerID == "" || presetOwnerID == callerAccountID
+	if hasPreset && !req.FreeEntry && !req.Rerun && presetReplayAllowed {
 		if stored, ok := h.store.NewestReady(req.PresetID); ok {
 			if won, err := h.idem.Remember(c.Request.Context(), key, resilience.Idempotent{Hash: hash, JobID: stored.ID}); err == nil && !won {
 				if prev, ok, err := h.idem.Lookup(c.Request.Context(), key); err == nil && ok {
@@ -92,7 +108,18 @@ func (h *Handler) postScout(c *gin.Context) {
 		built.AccountID = account.ID
 	}
 	built.ID = h.store.NextID()
-	if built.CampaignID == "" {
+	// A non-owner running a preset gets its own `cmp-NNNN` campaign so the
+	// run is not filed under the owner's shared preset id; the owner (and
+	// test harness, where presets have no owner) keeps the shared id and
+	// the replay shortcut it enables (PLAN.md §49).
+	if hasPreset && !req.FreeEntry && presetOwnerID != "" && presetOwnerID != callerAccountID {
+		built.CampaignID = h.store.NextCampaignID()
+		h.store.UpsertCampaign(orchestrator.CampaignRecord{
+			ID: built.CampaignID, Mode: built.Mode, City: built.City, Point: built.Point,
+			RadiusMeters: built.RadiusMeters, BrandName: built.Brand.Name, Seed: built.Seed,
+			AccountID: built.AccountID, PresetID: req.PresetID,
+		})
+	} else if built.CampaignID == "" {
 		if hasPreset && !req.FreeEntry {
 			built.CampaignID = presets.CampaignID(req.PresetID)
 		} else {
@@ -232,6 +259,18 @@ func (h *Handler) getCampaign(c *gin.Context) {
 	if !ok {
 		writeError(c, http.StatusNotFound, "not_found", "no such campaign")
 		return
+	}
+	// A campaign that belongs to an account is only readable by its owner.
+	// Anonymous visitors and other accounts get the same 404 the id would
+	// get for a never-created campaign; the owner's prior runs do not leak
+	// through the shared preset ids (PLAN.md §49). An owner-less record
+	// (test harness, local dev before the judge is seeded) stays public.
+	if record.AccountID != "" {
+		account, ok := auth.Current(c)
+		if !ok || account.ID != record.AccountID {
+			writeError(c, http.StatusNotFound, "not_found", "no such campaign")
+			return
+		}
 	}
 	run, ok := h.store.NewestForCampaign(record.ID)
 	if !ok {

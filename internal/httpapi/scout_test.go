@@ -17,6 +17,7 @@ import (
 	"github.com/karum-labs/karum-server/internal/geocode"
 	"github.com/karum-labs/karum-server/internal/orchestrator"
 	"github.com/karum-labs/karum-server/internal/pdf"
+	"github.com/karum-labs/karum-server/internal/presets"
 	"github.com/karum-labs/karum-server/internal/resilience"
 )
 
@@ -244,6 +245,62 @@ func TestPresetReplaySkipsThePipelineAndFreeEntryStaysLive(t *testing.T) {
 	door := doors[0].(map[string]any)
 	if door["name"] != "Live Door" {
 		t.Fatalf("free entry door = %+v", door)
+	}
+}
+
+// PLAN.md §49: a preset that belongs to the judge account is not readable
+// by anonymous visitors through the shared campaign id. The judge sees it;
+// unowned presets (test harness, local dev before seeding) stay public.
+func TestOwnedPresetCampaignIsHiddenFromAnonymousVisitors(t *testing.T) {
+	_, _, srv, store := testStack(config.ModeFixture)
+	defer srv.Close()
+	store.LinkPresets(presets.JudgeAccountID, []string{presets.CampaignID("austin-wholesale")})
+	// A judge-owned preset answers 404 to an anonymous GET even once a run
+	// exists, so a landing visitor cannot read the owner's prior attempt.
+	first := decode(t, postJSON(t, srv, "/api/v1/scout", "owned-1", map[string]any{"preset_id": "austin-wholesale"}))
+	if first["job_id"] == nil {
+		t.Fatalf("first preset = %+v", first)
+	}
+	anon, err := http.Get(srv.URL + "/api/v1/campaigns/" + presets.CampaignID("austin-wholesale"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if anon.StatusCode != http.StatusNotFound {
+		t.Fatalf("anonymous owned-campaign GET = %d, want 404", anon.StatusCode)
+	}
+	// Un-owned preset still answers 200.
+	run := decode(t, postJSON(t, srv, "/api/v1/scout", "open-1", map[string]any{"preset_id": "brooklyn-flagship"}))
+	if run["job_id"] == nil {
+		t.Fatalf("unowned preset = %+v", run)
+	}
+	pub, err := http.Get(srv.URL + "/api/v1/campaigns/" + presets.CampaignID("brooklyn-flagship"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub.StatusCode != http.StatusOK {
+		t.Fatalf("unowned-campaign GET = %d, want 200", pub.StatusCode)
+	}
+}
+
+// PLAN.md §49: two anonymous preset starts must not share a job id, so one
+// visitor's landing never shows another visitor's run (the previous bug
+// where every anonymous click replayed the judge's stored run).
+func TestAnonymousPresetStartsDoNotShareRuns(t *testing.T) {
+	_, fixture, srv, store := testStack(config.ModeFixture)
+	defer srv.Close()
+	store.LinkPresets(presets.JudgeAccountID, []string{presets.CampaignID("austin-wholesale")})
+	first := decode(t, postJSON(t, srv, "/api/v1/scout", "anon-1", map[string]any{"preset_id": "austin-wholesale"}))
+	second := decode(t, postJSON(t, srv, "/api/v1/scout", "anon-2", map[string]any{"preset_id": "austin-wholesale"}))
+	if first["job_id"] == nil || first["job_id"] == second["job_id"] {
+		t.Fatalf("anonymous runs share job id: first=%v second=%v", first["job_id"], second["job_id"])
+	}
+	// A separate cmp-NNNN campaign per start, not the shared preset id.
+	if first["campaign_id"] == presets.CampaignID("austin-wholesale") || first["campaign_id"] == second["campaign_id"] {
+		t.Fatalf("anonymous campaign ids clashed: first=%v second=%v", first["campaign_id"], second["campaign_id"])
+	}
+	// Each anonymous start runs the pipeline; it does not replay the owner's.
+	if fixture.n() < 2 {
+		t.Fatalf("fixture calls = %d, want at least 2 (one per anonymous start)", fixture.n())
 	}
 }
 

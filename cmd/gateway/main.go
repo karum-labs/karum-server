@@ -189,9 +189,14 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 			for _, preset := range presets.New().All() {
 				ids = append(ids, presets.CampaignID(preset.ID))
 			}
-			if _, err := authService.EnsureJudge(ctx, "acct-judge", cfg.JudgeEmail, cfg.JudgePassword, cfg.JudgeDisplayName, ids); err != nil {
+			if _, err := authService.EnsureJudge(ctx, presets.JudgeAccountID, cfg.JudgeEmail, cfg.JudgePassword, cfg.JudgeDisplayName, ids); err != nil {
 				slog.Warn("judge account could not be seeded", "error", err)
 			} else {
+				// Mirror SQL's `LinkCampaigns` write into the in-memory
+				// campaign records. Without this the handler would read an
+				// unowned preset record and let any visitor see the judge's
+				// prior runs through the shared cmp-* ids (PLAN.md §49).
+				mem.LinkPresets(presets.JudgeAccountID, ids)
 				slog.Info("judge account ready", "email", cfg.JudgeEmail, "campaigns", len(ids))
 			}
 		}
