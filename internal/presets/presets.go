@@ -6,9 +6,23 @@
 package presets
 
 // Preset is one judge button.
+//
+// The copy fields (ButtonLabel, Description, GroupID, GroupLabel,
+// GroupDescription, SKUs) used to be duplicated in `karum-client`'s
+// `presets.dart` as hand-maintained constants. `GET /api/v1/presets` now
+// serves this struct directly so the client has one source of truth instead
+// of a second, driftable copy (PLAN.md §52).
 type Preset struct {
-	ID               string
-	Label            string
+	ID          string
+	Label       string
+	ButtonLabel string
+	Description string
+	// GroupID ties variants that share one landing card (Brooklyn's flagship
+	// and collab buttons). GroupLabel and GroupDescription are the card's
+	// heading and subtitle; every variant in a group carries the same pair.
+	GroupID          string
+	GroupLabel       string
+	GroupDescription string
 	Mode             string
 	Brand            string
 	City             string
@@ -18,6 +32,7 @@ type Preset struct {
 	HeatmapRadius    int
 	CategoryTags     []string
 	Seed             []Entity
+	SKUs             []SKU
 	SkipCandidateIDs []string
 }
 
@@ -26,6 +41,12 @@ type Entity struct {
 	ID   string
 	Name string
 	Type string
+}
+
+// SKU is one product in the preset brand's own line, shown on the pitch card.
+type SKU struct {
+	ID   string
+	Name string
 }
 
 // Catalog is the four presets, keyed by id.
@@ -38,8 +59,16 @@ func New() *Catalog {
 	items := []Preset{
 		{
 			ID: "austin-wholesale", Label: "Sola in Austin", Mode: "wholesale",
-			Brand: "Sola", City: "Austin, TX, US", Lat: 30.2672, Lng: -97.7431,
+			ButtonLabel: "Try: Sola Yuzu Mezcal in Austin, TX",
+			Description: "Mezcal aperitif · bars and restaurants",
+			GroupID:     "austin", GroupLabel: "Sola in Austin",
+			GroupDescription: "A mezcal aperitif with no Qloo brand entity. The seed swaps in verified substitutes.",
+			Brand:            "Sola", City: "Austin, TX, US", Lat: 30.2672, Lng: -97.7431,
 			RadiusMeters: 8000, CategoryTags: []string{"urn:tag:genre:place:restaurant:bar"},
+			SKUs: []SKU{
+				{ID: "sola-aperitif", Name: "Sola Yuzu-Mezcal Aperitif"},
+				{ID: "sola-spritz", Name: "Sola Mezcal Spritz"},
+			},
 			Seed: []Entity{
 				{ID: "32F867B9-E6DF-44C3-BCE4-40160C7ED5E4", Name: "Aesop", Type: "urn:entity:brand"},
 				{ID: "41C4BB40-E667-416F-9541-63FD7E7FFFF5", Name: "Ilegal Mezcal", Type: "urn:entity:brand"},
@@ -60,9 +89,18 @@ func New() *Catalog {
 		},
 		{
 			ID: "brooklyn-flagship", Label: "Ceramics and matcha in Brooklyn", Mode: "flagship",
-			Brand: "Muji", City: "Brooklyn, NY, US", Lat: 40.7172, Lng: -73.9566,
+			ButtonLabel: "Try: Ceramics & Matcha — Flagship",
+			Description: "Design retail, ceramics studios, and matcha · corridor heatmap",
+			GroupID:     "brooklyn", GroupLabel: "Ceramics and matcha in Brooklyn",
+			GroupDescription: "One seed, two questions: where to open, and who to collaborate with.",
+			Brand:            "Muji", City: "Brooklyn, NY, US", Lat: 40.7172, Lng: -73.9566,
 			RadiusMeters: 8000, HeatmapRadius: 10000,
 			CategoryTags: []string{"urn:tag:genre:place:restaurant:cafe"},
+			SKUs: []SKU{
+				{ID: "muji-ceramics", Name: "Muji Ceramic Tableware"},
+				{ID: "muji-matcha", Name: "Muji Matcha Bowl"},
+				{ID: "muji-linen", Name: "Muji Linen Apron"},
+			},
 			Seed: []Entity{
 				{ID: "E12201A5-CC50-40AF-97AE-C54A2CA303F7", Name: "Muji", Type: "urn:entity:brand"},
 				{ID: "2B5888A0-8A41-4F23-9E1E-0F52DA29244A", Name: "Choplet Ceramic Studio & Gallery", Type: "urn:entity:place"},
@@ -82,9 +120,18 @@ func New() *Catalog {
 		},
 		{
 			ID: "brooklyn-collab", Label: "Brooklyn collab", Mode: "collab",
-			Brand: "Muji", City: "Brooklyn, NY, US", Lat: 40.7172, Lng: -73.9566,
+			ButtonLabel: "Try: Ceramics & Matcha — Collab",
+			Description: "Galleries and ceramics studios · activation partners",
+			GroupID:     "brooklyn", GroupLabel: "Ceramics and matcha in Brooklyn",
+			GroupDescription: "One seed, two questions: where to open, and who to collaborate with.",
+			Brand:            "Muji", City: "Brooklyn, NY, US", Lat: 40.7172, Lng: -73.9566,
 			RadiusMeters: 8000,
 			CategoryTags: []string{"urn:tag:genre:place:art_gallery", "urn:tag:genre:place:ceramics"},
+			SKUs: []SKU{
+				{ID: "muji-ceramics", Name: "Muji Ceramic Tableware"},
+				{ID: "muji-matcha", Name: "Muji Matcha Bowl"},
+				{ID: "muji-linen", Name: "Muji Linen Apron"},
+			},
 			Seed: []Entity{
 				{ID: "E12201A5-CC50-40AF-97AE-C54A2CA303F7", Name: "Muji", Type: "urn:entity:brand"},
 				{ID: "2B5888A0-8A41-4F23-9E1E-0F52DA29244A", Name: "Choplet Ceramic Studio & Gallery", Type: "urn:entity:place"},
@@ -94,8 +141,16 @@ func New() *Catalog {
 		},
 		{
 			ID: "mumbai-colaba-wholesale", Label: "Cacao and coffee in Colaba", Mode: "wholesale",
-			Brand: "Subko", City: "Mumbai, MH, IN", Lat: 18.93, Lng: 72.83,
+			ButtonLabel: "Try: Cacao & Coffee in Colaba, Mumbai",
+			Description: "Specialty cacao and coffee · cafés",
+			GroupID:     "colaba", GroupLabel: "Cacao and coffee in Colaba",
+			GroupDescription: "Brand-typed search misses; the seed resolves Mumbai specialty cafés.",
+			Brand:            "Subko", City: "Mumbai, MH, IN", Lat: 18.93, Lng: 72.83,
 			RadiusMeters: 8000, CategoryTags: []string{"urn:tag:genre:place:restaurant:cafe"},
+			SKUs: []SKU{
+				{ID: "subko-cacao", Name: "Subko Specialty Cacao"},
+				{ID: "subko-coffee", Name: "Subko Single-Origin Coffee"},
+			},
 			Seed: []Entity{
 				{ID: "0DE2E903-CCB5-4523-BAF0-3EC15514248C", Name: "Mary Lodge by Subko", Type: "urn:entity:place"},
 				{ID: "6CEDF620-266F-4B72-B14E-875532C321B1", Name: "Blue Tokai Coffee Roasters | Bandra", Type: "urn:entity:place"},
