@@ -163,9 +163,13 @@ func (d runtimeDeps) close() {
 }
 
 func buildDeps(cfg *config.Config) runtimeDeps {
-	// A hosted Postgres may be scaled to zero. Leave enough room for the wake
-	// before the gateway decides to fall back to memory.
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	// One budget covers connect, migrate, seed, and hydrate. Hydrate reads the
+	// stored run payloads, which grow with every flagship run (a 2.7 MB row was
+	// measured on the shared database), so the 20 s this used to allow was
+	// consumed before the judge account could be seeded. A hosted Postgres may
+	// also be scaled to zero, so the wake sits inside the same budget. When this
+	// expires the gateway falls back to memory with no account system at all.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	mem := orchestrator.NewStore()
