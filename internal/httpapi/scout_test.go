@@ -670,6 +670,25 @@ func TestCampaignPayloadCarriesMenuFindingsAndHeatmapCells(t *testing.T) {
 	}
 }
 
+func TestUniqueSkipsDropsExactDuplicates(t *testing.T) {
+	skip := orchestrator.SkipItem{
+		Entity: orchestrator.SeedEntity{
+			ID: "d-2", Type: "urn:entity:place", Name: "Below Floor",
+		},
+		Reason: "low_affinity",
+	}
+	closed := skip
+	closed.Reason = "closed"
+
+	got := uniqueSkips([]orchestrator.SkipItem{skip, skip, closed})
+	if len(got) != 2 {
+		t.Fatalf("uniqueSkips() kept %d skips, want 2: %+v", len(got), got)
+	}
+	if got[0].Reason != "low_affinity" || got[1].Reason != "closed" {
+		t.Fatalf("uniqueSkips() = %+v", got)
+	}
+}
+
 // The gateway must not drop the Qloo evidence service-taste computed: the
 // explainability contributions, the demographic profile, and the distance
 // are what the "How we know" drawer renders (PLAN.md §34).

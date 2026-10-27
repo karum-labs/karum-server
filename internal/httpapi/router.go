@@ -164,6 +164,8 @@ func registerRoutes(r *gin.Engine, h *Handler) {
 		v1.POST("/scout/:id/drafts/site-brief", h.optionalAuth(), h.postSiteBrief)
 		v1.POST("/scout/:id/drafts/doors/:doorID", h.optionalAuth(), h.postDoorPitch)
 		v1.GET("/campaigns/:id", h.optionalAuth(), h.getCampaign)
+v1.GET("/places/details", h.getPlaceDetails)
+v1.GET("/places/photo", h.getPlacePhoto)
 	}
 
 	r.NoRoute(func(c *gin.Context) {

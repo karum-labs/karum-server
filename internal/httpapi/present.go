@@ -281,7 +281,7 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 	if out.Doors == nil {
 		out.Doors = []doorBody{}
 	}
-	for _, skip := range run.Skip {
+	for _, skip := range uniqueSkips(run.Skip) {
 		body := skipBody{
 			ID: skip.Entity.ID, Name: skip.Entity.Name, Reason: skip.Reason,
 			ReasonDetail: skip.ReasonDetail,
@@ -355,6 +355,27 @@ func campaignOf(run *orchestrator.Run) campaignResponse {
 			})
 		}
 		out.Route = body
+	}
+	return out
+}
+
+// uniqueSkips drops exact duplicate skip entries. The taste service can
+// return the same place from both the requested skip candidates and the wider
+// low-affinity pool, which would otherwise produce duplicate pins and duplicate
+// rows in the Skip tab. Skips with different reasons stay distinct.
+func uniqueSkips(skips []orchestrator.SkipItem) []orchestrator.SkipItem {
+	if len(skips) < 2 {
+		return skips
+	}
+	seen := make(map[string]struct{}, len(skips))
+	out := make([]orchestrator.SkipItem, 0, len(skips))
+	for _, skip := range skips {
+		key := skip.Entity.ID + "\x00" + skip.Entity.Name + "\x00" + skip.Reason
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, skip)
 	}
 	return out
 }
