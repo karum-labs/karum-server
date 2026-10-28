@@ -47,6 +47,12 @@ type Dependencies struct {
 	// RegenLimiter bounds the expensive per-door regenerate route, the one
 	// other path that bills a model call.
 	RegenLimiter *resilience.Limiter
+	// PlacesLimiter bounds the place-details and photo proxies. Both are
+	// public and every call is billed to the gateway's Places key.
+	PlacesLimiter *resilience.Limiter
+	// PlacesBaseURL points the Places proxies somewhere other than Google.
+	// Tests set it; production leaves it empty.
+	PlacesBaseURL string
 	// Idem remembers the create keys. It is the Postgres-backed store when
 	// the database is reachable, with the in-process store as the fallback.
 	Idem     resilience.IdempotencyStore
@@ -60,21 +66,23 @@ type Dependencies struct {
 
 // Handler serves the scout API.
 type Handler struct {
-	cfg          *config.Config
-	live         *orchestrator.Runner
-	fixture      *orchestrator.Runner
-	store        *orchestrator.Store
-	geocoder     geocode.Geocoder
-	catalog      *presets.Catalog
-	limiter      *resilience.Limiter
-	loginLimiter *resilience.Limiter
-	regenLimiter *resilience.Limiter
-	idem         resilience.IdempotencyStore
-	renderer     Renderer
-	auth         *auth.Service
-	probes       Probes
-	async        bool
-	cancels      cancelRegistry
+	cfg           *config.Config
+	live          *orchestrator.Runner
+	fixture       *orchestrator.Runner
+	store         *orchestrator.Store
+	geocoder      geocode.Geocoder
+	catalog       *presets.Catalog
+	limiter       *resilience.Limiter
+	loginLimiter  *resilience.Limiter
+	regenLimiter  *resilience.Limiter
+	placesLimiter *resilience.Limiter
+	placesBase    string
+	idem          resilience.IdempotencyStore
+	renderer      Renderer
+	auth          *auth.Service
+	probes        Probes
+	async         bool
+	cancels       cancelRegistry
 }
 
 func newHandler(cfg *config.Config, deps Dependencies) *Handler {
@@ -93,6 +101,12 @@ func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 	if deps.RegenLimiter == nil {
 		deps.RegenLimiter = resilience.NewLimiter(0.5, 5, 20, 40)
 	}
+	if deps.PlacesLimiter == nil {
+		// A visitor tapping pins makes one details call per tap and one photo
+		// call per bubble; 3 per second with a burst of 15 is far above
+		// reading speed and well below a scraper's.
+		deps.PlacesLimiter = resilience.NewLimiter(3, 15, 40, 80)
+	}
 	if deps.Renderer == nil {
 		deps.Renderer = stockRenderer{}
 	}
@@ -103,6 +117,7 @@ func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 		cfg: cfg, live: deps.Live, fixture: deps.Fixture, store: deps.Store,
 		geocoder: deps.Geocoder, catalog: deps.Catalog, limiter: deps.Limiter,
 		loginLimiter: deps.LoginLimiter, regenLimiter: deps.RegenLimiter,
+		placesLimiter: deps.PlacesLimiter, placesBase: deps.PlacesBaseURL,
 		idem: deps.Idem, renderer: deps.Renderer, auth: deps.Auth, probes: deps.Probes, async: deps.Async,
 	}
 }
