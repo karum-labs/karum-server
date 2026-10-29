@@ -264,8 +264,8 @@ func (c *Clients) AuditMenu(ctx context.Context, req orchestrator.AuditRequest) 
 // DraftDoorPitch implements the draft half of orchestrator.AgentClient.
 func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequest) (orchestrator.DraftResult, error) {
 	resp, err := c.agent.DraftDoorPitch(ctx, &agentv1.DraftDoorPitchRequest{
-		Mode:    campaignMode(req.Mode),
-		City:    req.City,
+		Mode:     campaignMode(req.Mode),
+		City:     req.City,
 		MaxWords: int32(req.MaxWords),
 		Brand: &agentv1.BrandContext{
 			Name: req.Brand.Name,
@@ -304,10 +304,10 @@ func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequ
 // LlmOnlyBaseline implements the baseline half of orchestrator.AgentClient.
 func (c *Clients) LlmOnlyBaseline(ctx context.Context, req orchestrator.BaselineRequest) (orchestrator.BaselineResult, error) {
 	resp, err := c.agent.LlmOnlyBaseline(ctx, &agentv1.LlmOnlyBaselineRequest{
-		Brand:     &agentv1.BrandContext{Name: req.Brand.Name, Skus: skus(req.Brand.SKUs)},
-		City:      req.City,
-		Mode:      campaignMode(req.Mode),
-		MaxWords:  int32(req.MaxWords),
+		Brand:    &agentv1.BrandContext{Name: req.Brand.Name, Skus: skus(req.Brand.SKUs)},
+		City:     req.City,
+		Mode:     campaignMode(req.Mode),
+		MaxWords: int32(req.MaxWords),
 	})
 	if err != nil {
 		return orchestrator.BaselineResult{}, rpcErr(err)
@@ -509,8 +509,24 @@ func fromDemographics(profile *tastev1.DemographicProfile) *orchestrator.Demogra
 
 func toScore(score orchestrator.SubScore) *commonv1.SubScore {
 	return &commonv1.SubScore{
-		Name: score.Name, Value: score.Value, RawValue: score.RawValue,
-		Inputs: append([]string(nil), score.Inputs...),
+		Name:     score.Name,
+		Value:    score.Value,
+		RawValue: score.RawValue,
+		Inputs:   append([]string(nil), score.Inputs...),
+		Source:   sourceToProto(score.Source),
+	}
+}
+
+func sourceToProto(source string) commonv1.EvidenceSource {
+	switch source {
+	case "qloo_fact":
+		return commonv1.EvidenceSource_EVIDENCE_SOURCE_QLOO
+	case "google_fact":
+		return commonv1.EvidenceSource_EVIDENCE_SOURCE_GOOGLE
+	case "model_inference":
+		return commonv1.EvidenceSource_EVIDENCE_SOURCE_VERTEX
+	default:
+		return commonv1.EvidenceSource_EVIDENCE_SOURCE_UNSPECIFIED
 	}
 }
 
@@ -519,8 +535,25 @@ func fromScore(score *commonv1.SubScore) orchestrator.SubScore {
 		return orchestrator.SubScore{}
 	}
 	return orchestrator.SubScore{
-		Name: score.GetName(), Value: score.GetValue(), RawValue: score.GetRawValue(),
-		Inputs: append([]string(nil), score.GetInputs()...),
+		Name:     score.GetName(),
+		Value:    score.GetValue(),
+		RawValue: score.GetRawValue(),
+		Inputs:   append([]string(nil), score.GetInputs()...),
+		Source:   sourceFromProto(score.GetSource()),
+	}
+}
+
+func sourceFromProto(source commonv1.EvidenceSource) string {
+	switch source {
+	case commonv1.EvidenceSource_EVIDENCE_SOURCE_QLOO:
+		return "qloo_fact"
+	case commonv1.EvidenceSource_EVIDENCE_SOURCE_GOOGLE:
+		return "google_fact"
+	case commonv1.EvidenceSource_EVIDENCE_SOURCE_VERTEX,
+		commonv1.EvidenceSource_EVIDENCE_SOURCE_KARUM:
+		return "model_inference"
+	default:
+		return ""
 	}
 }
 

@@ -115,6 +115,11 @@ type scoreBody struct {
 	Raw     float64  `json:"raw,omitempty"`
 	Source  string   `json:"source"`
 	Inputs  []string `json:"inputs,omitempty"`
+	// Partial marks a composite that renormalized over the known terms
+	// because at least one sub-score was unknown. The display value is still
+	// the best available estimate; the flag keeps the client from presenting
+	// it as a complete three-term score.
+	Partial bool `json:"partial,omitempty"`
 }
 
 type tagBody struct {
@@ -381,25 +386,29 @@ func uniqueSkips(skips []orchestrator.SkipItem) []orchestrator.SkipItem {
 }
 
 func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrator.AuditFinding) doorBody {
+	affinitySource := "model_inference"
+	if door.Affinity.Name != "" || door.Affinity.RawValue != 0 {
+		affinitySource = "qloo_fact"
+	}
 	body := doorBody{
 		ID: door.Entity.ID, Name: door.Entity.Name, Rank: door.Rank,
 		EvidenceIDs: door.EvidenceIDs,
 		Scores: scoreSetBody{
-			CulturalAffinity: scoreOf(door.Affinity, "model_inference", false),
+			CulturalAffinity: scoreOf(door.Affinity, affinitySource, false),
 		},
 	}
 	if body.Scores.CulturalAffinity != nil {
 		body.Scores.CulturalAffinity.Raw = door.Affinity.RawValue
-		body.Scores.CulturalAffinity.Source = "model_inference"
 	}
 	if door.ShelfOpportunity != nil {
 		body.Scores.ShelfOpportunity = scoreOf(*door.ShelfOpportunity, "model_inference", false)
 	}
 	if door.DemographicAlignment != nil {
-		body.Scores.DemographicAlignment = scoreOf(*door.DemographicAlignment, "model_inference", false)
+		body.Scores.DemographicAlignment = scoreOf(*door.DemographicAlignment, "qloo_fact", false)
 	}
 	if door.Composite != nil {
 		shown := scoreOf(*door.Composite, "model_inference", true)
+		shown.Partial = hasInput(door.Composite.Inputs, "renormalized")
 		body.Scores.Composite = shown
 	}
 	for _, tag := range door.SharedTags {
@@ -483,12 +492,30 @@ func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrat
 	return body
 }
 
-func scoreOf(score orchestrator.SubScore, source string, display bool) *scoreBody {
-	body := &scoreBody{Value: score.Value, Raw: score.RawValue, Source: source, Inputs: score.Inputs}
+func scoreOf(score orchestrator.SubScore, fallbackSource string, display bool) *scoreBody {
+	body := &scoreBody{Value: score.Value, Raw: score.RawValue, Source: sourceOf(score, fallbackSource), Inputs: score.Inputs}
 	if display {
 		body.Display = score.RawValue
 	}
 	return body
+}
+
+// sourceOf keeps a stored run's provenance, falling back to the term's known
+// origin for snapshots written before X-07 carried a source.
+func sourceOf(score orchestrator.SubScore, fallback string) string {
+	if score.Source != "" {
+		return score.Source
+	}
+	return fallback
+}
+
+func hasInput(inputs []string, want string) bool {
+	for _, input := range inputs {
+		if input == want {
+			return true
+		}
+	}
+	return false
 }
 
 func documentOf(run *orchestrator.Run, brief bool) pdf.Document {
@@ -507,15 +534,15 @@ func documentOf(run *orchestrator.Run, brief bool) pdf.Document {
 	for _, door := range run.Doors {
 		pitch := run.Pitches[door.Entity.ID]
 		stop := pdf.Stop{Rank: door.Rank, Name: door.Entity.Name, SKU: pitch.RecommendedSKU.Name, Pitch: pitch.Script, Cites: door.EvidenceIDs}
-		stop.Scores = append(stop.Scores, pdf.Fact{Label: "Cultural affinity", Value: formatScore(door.Affinity), Source: "model_inference"})
+		stop.Scores = append(stop.Scores, pdf.Fact{Label: "Cultural affinity", Value: formatScore(door.Affinity), Source: sourceOf(door.Affinity, "model_inference")})
 		if door.Affinity.RawValue > 0 {
 			stop.Scores = append(stop.Scores, pdf.Fact{Label: "Raw affinity", Value: formatScore(orchestrator.SubScore{Value: door.Affinity.RawValue}), Source: "qloo_fact"})
 		}
 		if door.ShelfOpportunity != nil {
-			stop.Scores = append(stop.Scores, pdf.Fact{Label: "Shelf opportunity", Value: formatScore(*door.ShelfOpportunity), Source: "model_inference"})
+			stop.Scores = append(stop.Scores, pdf.Fact{Label: "Shelf opportunity", Value: formatScore(*door.ShelfOpportunity), Source: sourceOf(*door.ShelfOpportunity, "model_inference")})
 		}
 		if door.DemographicAlignment != nil {
-			stop.Scores = append(stop.Scores, pdf.Fact{Label: "Demographic alignment", Value: formatScore(*door.DemographicAlignment), Source: "model_inference"})
+			stop.Scores = append(stop.Scores, pdf.Fact{Label: "Demographic alignment", Value: formatScore(*door.DemographicAlignment), Source: sourceOf(*door.DemographicAlignment, "qloo_fact")})
 		}
 		if door.Enrichment != nil && door.Enrichment.Address != "" {
 			stop.Scores = append(stop.Scores, pdf.Fact{Label: "Address", Value: door.Enrichment.Address, Source: "google_fact"})

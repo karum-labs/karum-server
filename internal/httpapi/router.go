@@ -155,6 +155,7 @@ func registerRoutes(r *gin.Engine, h *Handler) {
 		v1.GET("/auth/me", h.requiredAuth(), h.getMe)
 		v1.POST("/auth/logout", h.requiredAuth(), h.postLogout)
 		v1.GET("/presets", h.getPresets)
+		v1.GET("/account/campaigns", h.requiredAuth(), h.getAccountCampaigns)
 		v1.POST("/prewarm", h.requiredAuth(), h.postPrewarm)
 		v1.POST("/scout", h.optionalAuth(), h.postScout)
 		v1.GET("/scout/:id", h.optionalAuth(), h.getScout)

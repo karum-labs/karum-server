@@ -172,10 +172,10 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 	err := r.callAI(ctx, func(ctx context.Context) error {
 		var callErr error
 		baseline, callErr = r.agent.LlmOnlyBaseline(ctx, BaselineRequest{
-			Brand:     req.Brand,
-			City:      req.City,
-			Mode:      req.Mode,
-			MaxWords:  160,
+			Brand:    req.Brand,
+			City:     req.City,
+			Mode:     req.Mode,
+			MaxWords: 160,
 		})
 		return callErr
 	})
@@ -213,6 +213,17 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 	run.Evidence = scout.Evidence
 	run.Warnings = append(run.Warnings, scout.Warnings...)
 	run.AffinityFloor = scout.AffinityFloor
+	// Affinity and demographic alignment both come from Qloo, so their raw
+	// values are qloo facts; the composite the gateway assembles is its own
+	// inference (set in score assembly).
+	for i := range run.Doors {
+		if run.Doors[i].Affinity.Name != "" {
+			run.Doors[i].Affinity.Source = "qloo_fact"
+		}
+		if run.Doors[i].DemographicAlignment != nil && run.Doors[i].DemographicAlignment.Name != "" {
+			run.Doors[i].DemographicAlignment.Source = "qloo_fact"
+		}
+	}
 	if payload, mErr := json.Marshal(scout); mErr == nil {
 		run.QlooPayload = payload
 	}
@@ -415,11 +426,11 @@ func (r *Runner) draftDoor(
 	err := r.callAI(ctx, func(ctx context.Context) error {
 		var callErr error
 		draft, callErr = r.agent.DraftDoorPitch(ctx, DraftRequest{
-			Brand:   req.Brand,
-			Door:    door,
-			Finding: finding,
-			City:    req.City,
-			Mode:    run.Mode,
+			Brand:    req.Brand,
+			Door:     door,
+			Finding:  finding,
+			City:     req.City,
+			Mode:     run.Mode,
 			MaxWords: 220,
 			// The run's evidence set is the allow-set a cited id must belong
 			// to; an id outside it is dropped (PLAN.md §17).

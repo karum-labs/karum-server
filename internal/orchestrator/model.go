@@ -57,11 +57,15 @@ type Tag struct {
 }
 
 // SubScore is one 0–1 term of the door composite, with its inputs beside it.
+// Source names where the raw value came from: qloo_fact, model_inference,
+// google_fact, or similar. It surfaces the proto provenance marker on the wire
+// so the client and PDF can style facts and inferences distinctly (X-07).
 type SubScore struct {
 	Name     string
 	Value    float64
 	RawValue float64
 	Inputs   []string
+	Source   string
 }
 
 // Explainability is one seed input's contribution to a door's affinity,
@@ -415,6 +419,7 @@ type CampaignRecord struct {
 	BrandName    string
 	Seed         []SeedEntity
 	AccountID    string
+	CreatedAt    time.Time
 }
 
 // SeedQuery is a raw brand query resolved only when the request has no

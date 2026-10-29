@@ -373,6 +373,52 @@ func writeError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, gin.H{"error": code, "message": message})
 }
 
+// accountCampaignBody is a lightweight campaign header for the account's
+// run-history list. It carries enough to restore a run or re-run a preset.
+type accountCampaignBody struct {
+	ID           string     `json:"id"`
+	PresetID     string     `json:"preset_id,omitempty"`
+	Mode         string     `json:"mode"`
+	City         string     `json:"city"`
+	BrandName    string     `json:"brand_name"`
+	RadiusMeters int        `json:"radius_meters"`
+	Point        *pointBody `json:"point,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	HasRun       bool       `json:"has_run"`
+}
+
+// getAccountCampaigns lists the campaigns owned by the signed-in account,
+// newest first. It is owner-scoped: anonymous visitors get 401, and another
+// account never sees this account's campaigns (PLAN.md §49).
+func (h *Handler) getAccountCampaigns(c *gin.Context) {
+	account, ok := auth.Current(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "unauthorized", "sign in is required")
+		return
+	}
+	records := h.store.ListCampaigns(account.ID)
+	out := make([]accountCampaignBody, 0, len(records))
+	for _, record := range records {
+		body := accountCampaignBody{
+			ID:           record.ID,
+			PresetID:     record.PresetID,
+			Mode:         string(record.Mode),
+			City:         record.City,
+			BrandName:    record.BrandName,
+			RadiusMeters: record.RadiusMeters,
+			CreatedAt:    record.CreatedAt,
+		}
+		if record.Point.Lat != 0 || record.Point.Lng != 0 {
+			body.Point = &pointBody{Lat: record.Point.Lat, Lng: record.Point.Lng}
+		}
+		if _, ok := h.store.NewestForCampaign(record.ID); ok {
+			body.HasRun = true
+		}
+		out = append(out, body)
+	}
+	c.JSON(http.StatusOK, gin.H{"campaigns": out})
+}
+
 func errString(err error) string {
 	if err == nil {
 		return "the scout could not start"

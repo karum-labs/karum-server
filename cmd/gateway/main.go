@@ -226,8 +226,8 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 	}
 	if cfg.RoutesAPIKey != "" {
 		runner.WithRoutes(routes.Client{
-			Key:   cfg.RoutesAPIKey,
-			HTTP:  &http.Client{Timeout: 20 * time.Second},
+			Key:  cfg.RoutesAPIKey,
+			HTTP: &http.Client{Timeout: 20 * time.Second},
 		})
 	}
 

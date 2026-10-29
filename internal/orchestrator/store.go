@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +53,7 @@ func NewStore() *Store {
 			RadiusMeters: preset.RadiusMeters,
 			BrandName:    preset.Brand,
 			Seed:         seed,
+			CreatedAt:    time.Now(),
 		}
 	}
 	return s
@@ -130,22 +132,33 @@ func (s *Store) Len() int {
 	return len(s.runs)
 }
 
-// NewestReady returns the newest ready or degraded run for a preset. Free-entry
-// runs are not served on the preset path.
+// NewestReady returns the best stored run for a preset: the newest ready run,
+// or the newest degraded run when no ready run exists. A ready run is preferred
+// even when a newer degraded run was stored afterwards, because the preset path
+// exists to replay a complete demo run (PLAN.md §13 and §39). Free-entry runs
+// are not served on the preset path.
 func (s *Store) NewestReady(presetID string) (*Run, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var best *Run
+	var bestReady, bestDegraded *Run
 	for _, run := range s.runs {
 		if run.PresetID != presetID || run.FreeEntry {
 			continue
 		}
-		if run.State != StateReady && run.State != StateDegraded {
-			continue
+		switch run.State {
+		case StateReady:
+			if bestReady == nil || newerRun(run, bestReady) {
+				bestReady = run
+			}
+		case StateDegraded:
+			if bestDegraded == nil || newerRun(run, bestDegraded) {
+				bestDegraded = run
+			}
 		}
-		if best == nil || newerRun(run, best) {
-			best = run
-		}
+	}
+	best := bestReady
+	if best == nil {
+		best = bestDegraded
 	}
 	if best == nil {
 		return nil, false
@@ -237,6 +250,9 @@ func (s *Store) UpsertCampaign(record CampaignRecord) {
 	if record.ID == "" {
 		return
 	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = time.Now()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.campaigns[record.ID] = record
@@ -252,6 +268,29 @@ func (s *Store) Campaign(id string) (CampaignRecord, bool) {
 	}
 	record.Seed = append([]SeedEntity(nil), record.Seed...)
 	return record, true
+}
+
+// ListCampaigns returns the campaign headers owned by accountID, newest first.
+// An empty accountID returns no records: the endpoint is owner-scoped and
+// anonymous visitors never see anyone else's campaigns (PLAN.md §49).
+func (s *Store) ListCampaigns(accountID string) []CampaignRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if accountID == "" {
+		return nil
+	}
+	out := make([]CampaignRecord, 0, len(s.campaigns))
+	for _, record := range s.campaigns {
+		if record.AccountID != accountID {
+			continue
+		}
+		record.Seed = append([]SeedEntity(nil), record.Seed...)
+		out = append(out, record)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out
 }
 
 // Subscribe returns a channel that receives a signal whenever the run is stored,

@@ -370,6 +370,7 @@ func (r *Runner) scoreDoors(run *Run) {
 				Value:    finding.ShelfOpportunity,
 				RawValue: finding.ShelfOpportunity,
 				Inputs:   []string{fmt.Sprintf("competitors=%d", finding.CompetitorCount)},
+				Source:   "model_inference",
 			}
 		}
 		demo := score.Term{Name: "D_demo"}
@@ -387,6 +388,7 @@ func (r *Runner) scoreDoors(run *Run) {
 			Value:    assembled.Value,
 			RawValue: assembled.Display,
 			Inputs:   append([]string{assembled.Formula}, assembled.Inputs...),
+			Source:   "model_inference",
 		}
 		kept = append(kept, door)
 	}
