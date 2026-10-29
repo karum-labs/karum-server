@@ -118,6 +118,9 @@ func (boomPDF) RunSheet(pdf.Document) ([]byte, error) { return nil, errors.New("
 func (boomPDF) SiteBrief(pdf.Document) ([]byte, error) {
 	return nil, errors.New("render failed")
 }
+func (boomPDF) PitchExport(pdf.PitchDocument) ([]byte, error) {
+	return nil, errors.New("render failed")
+}
 
 func testStack(mode config.Mode) (*httpTaste, *httpTaste, *httptest.Server, *orchestrator.Store) {
 	store := orchestrator.NewStore()

@@ -35,6 +35,7 @@ type Enrichment struct {
 	Address    string
 	Hours      string
 	Website    string
+	Phone      string
 	OpenStatus string
 	Lat        float64
 	Lng        float64
@@ -90,6 +91,8 @@ type placeResource struct {
 	Hours            struct {
 		WeekdayDescriptions []string `json:"weekdayDescriptions"`
 	} `json:"regularOpeningHours"`
+	NationalPhoneNumber string `json:"nationalPhoneNumber"`
+	InternationalPhone  string `json:"internationalPhoneNumber"`
 }
 
 // Enrich implements Enricher. A missing key returns an unknown enrichment per
@@ -149,7 +152,7 @@ func (c Client) one(ctx context.Context, target Target) (Enrichment, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Goog-Api-Key", c.Key)
-	req.Header.Set("X-Goog-FieldMask", "places.formattedAddress,places.websiteUri,places.businessStatus,places.location,places.regularOpeningHours")
+	req.Header.Set("X-Goog-FieldMask", "places.formattedAddress,places.websiteUri,places.businessStatus,places.location,places.regularOpeningHours,places.nationalPhoneNumber,places.internationalPhoneNumber")
 	client := c.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
@@ -183,6 +186,7 @@ func (c Client) one(ctx context.Context, target Target) (Enrichment, error) {
 		Address:     row.FormattedAddress,
 		Hours:       strings.Join(row.Hours.WeekdayDescriptions, "; "),
 		Website:     row.WebsiteURI,
+		Phone:       row.InternationalPhone,
 		OpenStatus:  status,
 		Lat:         row.Location.Latitude,
 		Lng:         row.Location.Longitude,

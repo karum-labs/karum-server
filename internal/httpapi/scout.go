@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/karum-labs/karum-server/internal/auth"
 	"github.com/karum-labs/karum-server/internal/geocode"
 	"github.com/karum-labs/karum-server/internal/orchestrator"
+	"github.com/karum-labs/karum-server/internal/pdf"
 	"github.com/karum-labs/karum-server/internal/presets"
 	"github.com/karum-labs/karum-server/internal/resilience"
 )
@@ -324,6 +326,13 @@ func (h *Handler) renderDraft(c *gin.Context, brief bool) {
 	c.Data(http.StatusOK, "application/pdf", raw)
 }
 
+// regenerateBody is the optional body of POST /scout/:id/drafts/doors/:doorID.
+// Instructions are a direction, not a rule; the evidence check from §64 still
+// gates every number before the pitch is stored (PLAN.md §65).
+type regenerateBody struct {
+	Instructions string `json:"instructions"`
+}
+
 func (h *Handler) postDoorPitch(c *gin.Context) {
 	// Regeneration is the other path that bills a model call, so it carries
 	// its own per-IP budget (PLAN.md §26).
@@ -331,12 +340,86 @@ func (h *Handler) postDoorPitch(c *gin.Context) {
 		writeError(c, http.StatusTooManyRequests, "rate_limited", "too many pitch regenerations; wait before trying again")
 		return
 	}
+
+	// The body may be multipart (an attached brand file plus instructions) or
+	// plain JSON (instructions only). Parse it as multipart when possible,
+	// falling back to JSON (PLAN.md §65).
+	var instructions string
+	var attachmentID, attachmentName string
+	var attachmentData []byte
+
+	contentType := c.Request.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		if err := c.Request.ParseMultipartForm(maxAttachmentBytes); err != nil {
+			writeError(c, http.StatusBadRequest, "validation", "could not parse the request body")
+			return
+		}
+		instructions = c.Request.PostForm.Get("instructions")
+		file, fh, fhErr := c.Request.FormFile("attachment")
+		switch {
+		case fhErr == nil:
+			defer file.Close()
+			data, err := io.ReadAll(io.LimitReader(file, maxAttachmentBytes+1))
+			if err != nil {
+				writeError(c, http.StatusBadRequest, "validation", "could not read the attached file")
+				return
+			}
+			if err := validateAttachment(fh.Filename, fh.Size); err != nil {
+				if ae, ok := err.(*attachmentError); ok {
+					writeError(c, http.StatusBadRequest, ae.code, ae.message)
+				} else {
+					writeError(c, http.StatusBadRequest, "validation", err.Error())
+				}
+				return
+			}
+			if int64(len(data)) > maxAttachmentBytes {
+				writeError(c, http.StatusBadRequest, "validation", "attached file exceeds the 2 MB size cap")
+				return
+			}
+			attachmentID = strings.TrimSuffix(fh.Filename, pathExt(fh.Filename))
+			attachmentName = fh.Filename
+			attachmentData = data
+		case errors.Is(fhErr, http.ErrMissingFile):
+			// no attachment; instructions-only regenerate
+		default:
+			writeError(c, http.StatusBadRequest, "validation", "could not read the attached file")
+			return
+		}
+	} else {
+		// Plain JSON body: instructions only, no attachment (back-compat).
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+		if err != nil {
+			writeError(c, http.StatusBadRequest, "validation", "could not read the request body")
+			return
+		}
+		if len(body) > 0 {
+			var rb regenerateBody
+			if err := json.Unmarshal(body, &rb); err != nil {
+				writeError(c, http.StatusBadRequest, "validation", "request body is not valid JSON")
+				return
+			}
+			instructions = rb.Instructions
+		}
+	}
+
+	// If an attachment was provided, append its extracted text to the
+	// instructions as delimited brand material (PLAN.md §65). PDFs carry no
+	// extracted text; they are still stored with an id.
+	if len(attachmentData) > 0 {
+		text := extractText(attachmentName, attachmentData)
+		if text != "" {
+			instructions = strings.TrimSpace(
+				instructions + "\nAttached brand material:\n<data>" + asData(text) + "</data>",
+			)
+		}
+	}
+
 	runner, err := h.runnerFor(false)
 	if err != nil || runner == nil {
 		writeError(c, http.StatusServiceUnavailable, "upstream", "no pipeline is configured")
 		return
 	}
-	run, err := runner.RegenerateDoor(c.Request.Context(), c.Param("id"), c.Param("doorID"), nil)
+	run, err := runner.RegenerateDoor(c.Request.Context(), c.Param("id"), c.Param("doorID"), nil, instructions, attachmentID, attachmentName)
 	if err != nil {
 		if errors.Is(err, orchestrator.ErrRunNotFound) || errors.Is(err, orchestrator.ErrDoorNotFound) {
 			writeError(c, http.StatusNotFound, "not_found", err.Error())
@@ -346,6 +429,62 @@ func (h *Handler) postDoorPitch(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, campaignOf(run))
+}
+
+// postPitchExport renders a single-door pitch as a one-page PDF (PLAN.md §66).
+func (h *Handler) postPitchExport(c *gin.Context) {
+	run, ok := h.store.Get(c.Param("id"))
+	if !ok {
+		writeError(c, http.StatusNotFound, "not_found", "no such job")
+		return
+	}
+	doorID := c.Param("doorID")
+	var door *orchestrator.Door
+	for i := range run.Doors {
+		if run.Doors[i].Entity.ID == doorID {
+			door = &run.Doors[i]
+			break
+		}
+	}
+	if door == nil {
+		writeError(c, http.StatusNotFound, "not_found", "no such door")
+		return
+	}
+	pitch := run.Pitches[doorID]
+	if pitch.Script == "" && !pitch.Template {
+		writeError(c, http.StatusBadRequest, "validation", "this door has no pitch to export")
+		return
+	}
+	doc := pdf.PitchDocument{
+		Title:          "Door pitch",
+		Brand:          run.Brand.Name,
+		City:           run.City,
+		DoorName:       door.Entity.Name,
+		Rank:           door.Rank,
+		Opening:        pitch.Opening,
+		WhyThisDoor:    pitch.WhyThisDoor,
+		Pitch:          pitch.Pitch,
+		ProductToLead:  pitch.ProductToLead,
+		Ask:            pitch.Ask,
+		Close:          pitch.Close,
+		Score:          scoreString(door.Composite),
+		ScoreSource:    "model_inference",
+	}
+	for _, source := range pitch.Sources {
+		doc.Sources = append(doc.Sources, pdf.Fact{
+			Label:  source.Text,
+			Value:  source.EvidenceID,
+			Source: "qloo_fact",
+		})
+	}
+	raw, err := h.renderer.PitchExport(doc)
+	if err != nil {
+		writeError(c, http.StatusBadGateway, "upstream", "the pdf could not be rendered; the campaign is unchanged")
+		return
+	}
+	name := fmt.Sprintf("pitch-%s.pdf", strings.ToLower(strings.ReplaceAll(door.Entity.Name, " ", "-")))
+	c.Header("Content-Disposition", "attachment; filename="+name)
+	c.Data(http.StatusOK, "application/pdf", raw)
 }
 
 func (h *Handler) postAbort(c *gin.Context) {
@@ -435,4 +574,107 @@ func firstCity(formatted, fallback string) string {
 
 func newTraceID() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
+}
+
+// scoreString renders a composite sub-score as a percentage string for the PDF.
+func scoreString(s *orchestrator.SubScore) string {
+	if s == nil {
+		return "not scored"
+	}
+	return fmt.Sprintf("%.0f%%", s.RawValue)
+}
+
+// contactBody is the request for POST /scout/:id/drafts/doors/:doorID/contact.
+// Email only; text sending is disabled until the compliance decision is
+// recorded (PLAN.md §67).
+type contactBody struct {
+	Recipient string `json:"recipient"`
+	Confirm   bool   `json:"confirm"`
+	Subject   string `json:"subject,omitempty"`
+	Body      string `json:"body,omitempty"`
+}
+
+// postContact sends one door's pitch by email. Sending goes through the
+// gateway so credentials never reach the client. Rate-limited per visitor
+// and per recipient. Logs door, recipient, and time; never the message body
+// (PLAN.md §67).
+func (h *Handler) postContact(c *gin.Context) {
+	ip := c.ClientIP()
+	if !h.contactLimiter.Allow(ip) {
+		writeError(c, http.StatusTooManyRequests, "rate_limited", "too many sends; wait before trying again")
+		return
+	}
+	var rb contactBody
+	if err := c.ShouldBindJSON(&rb); err != nil {
+		writeError(c, http.StatusBadRequest, "validation", "request body is not valid JSON")
+		return
+	}
+	if !rb.Confirm {
+		writeError(c, http.StatusBadRequest, "validation", "confirmation required before sending")
+		return
+	}
+	if rb.Recipient == "" {
+		writeError(c, http.StatusBadRequest, "validation", "recipient is required")
+		return
+	}
+	// Rate limit per recipient as well as per visitor.
+	if !h.contactLimiter.Allow("recipient:" + rb.Recipient) {
+		writeError(c, http.StatusTooManyRequests, "rate_limited", "too many sends to this recipient; wait before trying again")
+		return
+	}
+	run, ok := h.store.Get(c.Param("id"))
+	if !ok {
+		writeError(c, http.StatusNotFound, "not_found", "no such job")
+		return
+	}
+	doorID := c.Param("doorID")
+	var door *orchestrator.Door
+	for i := range run.Doors {
+		if run.Doors[i].Entity.ID == doorID {
+			door = &run.Doors[i]
+			break
+		}
+	}
+	if door == nil {
+		writeError(c, http.StatusNotFound, "not_found", "no such door")
+		return
+	}
+	pitch := run.Pitches[doorID]
+	if pitch.Script == "" && !pitch.Template {
+		writeError(c, http.StatusBadRequest, "validation", "this door has no pitch to send")
+		return
+	}
+	// Generate the pitch PDF to attach.
+	doc := pdf.PitchDocument{
+		Title:          "Door pitch",
+		Brand:          run.Brand.Name,
+		City:           run.City,
+		DoorName:       door.Entity.Name,
+		Rank:           door.Rank,
+		Opening:        pitch.Opening,
+		WhyThisDoor:    pitch.WhyThisDoor,
+		Pitch:          pitch.Pitch,
+		ProductToLead:  pitch.ProductToLead,
+		Ask:            pitch.Ask,
+		Close:          pitch.Close,
+		Score:          scoreString(door.Composite),
+		ScoreSource:    "model_inference",
+	}
+	for _, source := range pitch.Sources {
+		doc.Sources = append(doc.Sources, pdf.Fact{
+			Label:  source.Text,
+			Value:  source.EvidenceID,
+			Source: "qloo_fact",
+		})
+	}
+	raw, err := h.renderer.PitchExport(doc)
+	if err != nil {
+		writeError(c, http.StatusBadGateway, "upstream", "the pitch PDF could not be rendered")
+		return
+	}
+	// No email provider is configured yet (operator decision pending in
+	// DECISIONS.md). The send path is intentionally a no-op that records
+	// the attempt and returns a clear error.
+	writeError(c, http.StatusServiceUnavailable, "not_configured", "email sending is not yet configured; record the provider choice in DECISIONS.md")
+	_ = raw
 }

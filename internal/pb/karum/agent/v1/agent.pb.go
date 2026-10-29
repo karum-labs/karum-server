@@ -1195,6 +1195,68 @@ func (x *DoorContext) GetAudit() *MenuAuditResult {
 	return nil
 }
 
+// Citation is one machine-readable citation: an evidence id the draft cites
+// plus the citation text the model wrote. Prose never carries ids inline;
+// citations render as a separate source list at the bottom of the pitch.
+// Both fields are authored by the model, but the id references an evidence
+// call recorded by the gateway, so the id is bookkeeping and the text is an
+// inference (PLAN.md §64).
+type Citation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Input: the evidence id this citation points to, e.g. "ev-0007". It must
+	// belong to the run's evidence set; a cited id outside it is dropped.
+	EvidenceId string `protobuf:"bytes,1,opt,name=evidence_id,json=evidenceId,proto3" json:"evidence_id,omitempty"`
+	// Model inference: the citation text the model wrote for this evidence id,
+	// e.g. "Whisler's ranks first of 25 doors".
+	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Citation) Reset() {
+	*x = Citation{}
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Citation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Citation) ProtoMessage() {}
+
+func (x *Citation) ProtoReflect() protoreflect.Message {
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Citation.ProtoReflect.Descriptor instead.
+func (*Citation) Descriptor() ([]byte, []int) {
+	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *Citation) GetEvidenceId() string {
+	if x != nil {
+		return x.EvidenceId
+	}
+	return ""
+}
+
+func (x *Citation) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 // Battlecard is the displacement card attached when an incumbent is present.
 type Battlecard struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1213,7 +1275,7 @@ type Battlecard struct {
 
 func (x *Battlecard) Reset() {
 	*x = Battlecard{}
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1225,7 +1287,7 @@ func (x *Battlecard) String() string {
 func (*Battlecard) ProtoMessage() {}
 
 func (x *Battlecard) ProtoReflect() protoreflect.Message {
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1238,7 +1300,7 @@ func (x *Battlecard) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Battlecard.ProtoReflect.Descriptor instead.
 func (*Battlecard) Descriptor() ([]byte, []int) {
-	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Battlecard) GetHeadline() string {
@@ -1289,14 +1351,25 @@ type DraftDoorPitchRequest struct {
 	// allow-set the citation filter checks against: a sentence that states a
 	// number and cites an id outside this set is dropped, and an empty set
 	// drops every sentence that states a number (PLAN.md §17, §18).
-	EvidenceIds   []string `protobuf:"bytes,7,rep,name=evidence_ids,json=evidenceIds,proto3" json:"evidence_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	EvidenceIds []string `protobuf:"bytes,7,rep,name=evidence_ids,json=evidenceIds,proto3" json:"evidence_ids,omitempty"`
+	// Input: the operator's direction for the redraft, e.g. "shorter opening,
+	// lead with the cold-brew SKU". It is a request, not a rule: the evidence
+	// check from §64 still gates every number before the pitch is stored
+	// (PLAN.md §65).
+	Instructions string `protobuf:"bytes,8,opt,name=instructions,proto3" json:"instructions,omitempty"`
+	// Input: when a brand file was attached, its server-assigned id and
+	// original name, stored with the pitch so the client can show a chip
+	// (PLAN.md §65).
+	AttachmentId string `protobuf:"bytes,9,opt,name=attachment_id,json=attachmentId,proto3" json:"attachment_id,omitempty"`
+	// Input: the original file name of the attached brand file (PLAN.md §65).
+	AttachmentName string `protobuf:"bytes,10,opt,name=attachment_name,json=attachmentName,proto3" json:"attachment_name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DraftDoorPitchRequest) Reset() {
 	*x = DraftDoorPitchRequest{}
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1308,7 +1381,7 @@ func (x *DraftDoorPitchRequest) String() string {
 func (*DraftDoorPitchRequest) ProtoMessage() {}
 
 func (x *DraftDoorPitchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1321,7 +1394,7 @@ func (x *DraftDoorPitchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DraftDoorPitchRequest.ProtoReflect.Descriptor instead.
 func (*DraftDoorPitchRequest) Descriptor() ([]byte, []int) {
-	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DraftDoorPitchRequest) GetMeta() *v1.RequestMeta {
@@ -1373,11 +1446,36 @@ func (x *DraftDoorPitchRequest) GetEvidenceIds() []string {
 	return nil
 }
 
+func (x *DraftDoorPitchRequest) GetInstructions() string {
+	if x != nil {
+		return x.Instructions
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchRequest) GetAttachmentId() string {
+	if x != nil {
+		return x.AttachmentId
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchRequest) GetAttachmentName() string {
+	if x != nil {
+		return x.AttachmentName
+	}
+	return ""
+}
+
 // DraftDoorPitchResponse returns the script and its supporting texts.
+// The six sections are citation-free prose; citations live in `sources` and
+// never appear inline. `script` is the combined, citation-free renderable
+// prose kept for backward compatibility (PLAN.md §64).
 type DraftDoorPitchResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Model inference: the shopkeeper script; every number cites an evidence id
-	// (PLAN.md §17).
+	// Model inference: the combined, citation-free shopkeeper script, rendered
+	// when the sections are not shown. Numbers in it cite evidence ids that map
+	// to entries in `sources` (PLAN.md §17).
 	Script string `protobuf:"bytes,1,opt,name=script,proto3" json:"script,omitempty"`
 	// Model inference: the displacement battlecard, present only when the audit
 	// found an incumbent.
@@ -1389,6 +1487,25 @@ type DraftDoorPitchResponse struct {
 	// flagship mode or the activation proposal in collab mode; empty in
 	// wholesale.
 	ModeParagraph string `protobuf:"bytes,4,opt,name=mode_paragraph,json=modeParagraph,proto3" json:"mode_paragraph,omitempty"`
+	// Model inference: the opening of the pitch, plain sentences with no
+	// bracketed ids.
+	Opening string `protobuf:"bytes,8,opt,name=opening,proto3" json:"opening,omitempty"`
+	// Model inference: plain-language reasons for this door, figures kept but
+	// evidence ids moved to `sources`.
+	WhyThisDoor string `protobuf:"bytes,9,opt,name=why_this_door,json=whyThisDoor,proto3" json:"why_this_door,omitempty"`
+	// Model inference: the pitch itself, written to be read aloud at the door.
+	Pitch string `protobuf:"bytes,10,opt,name=pitch,proto3" json:"pitch,omitempty"`
+	// Model inference: the product to lead with, chosen from the brand's own
+	// SKU list with the door's shared taste tags.
+	ProductToLead string `protobuf:"bytes,11,opt,name=product_to_lead,json=productToLead,proto3" json:"product_to_lead,omitempty"`
+	// Model inference: the ask to the venue.
+	Ask string `protobuf:"bytes,12,opt,name=ask,proto3" json:"ask,omitempty"`
+	// Model inference: the close of the pitch.
+	Close string `protobuf:"bytes,13,opt,name=close,proto3" json:"close,omitempty"`
+	// Model inference: the machine-readable citations, one per evidence id the
+	// prose cites. Renders as a source list at the bottom of the pitch instead
+	// of inline ids (PLAN.md §64).
+	Sources []*Citation `protobuf:"bytes,14,rep,name=sources,proto3" json:"sources,omitempty"`
 	// Input: the model id, prompt version, and cited evidence ids.
 	Attribution *ModelAttribution `protobuf:"bytes,5,opt,name=attribution,proto3" json:"attribution,omitempty"`
 	// Input: the failure classification; ERROR_CODE_UNSPECIFIED on success.
@@ -1401,7 +1518,7 @@ type DraftDoorPitchResponse struct {
 
 func (x *DraftDoorPitchResponse) Reset() {
 	*x = DraftDoorPitchResponse{}
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1413,7 +1530,7 @@ func (x *DraftDoorPitchResponse) String() string {
 func (*DraftDoorPitchResponse) ProtoMessage() {}
 
 func (x *DraftDoorPitchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1426,7 +1543,7 @@ func (x *DraftDoorPitchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DraftDoorPitchResponse.ProtoReflect.Descriptor instead.
 func (*DraftDoorPitchResponse) Descriptor() ([]byte, []int) {
-	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DraftDoorPitchResponse) GetScript() string {
@@ -1455,6 +1572,55 @@ func (x *DraftDoorPitchResponse) GetModeParagraph() string {
 		return x.ModeParagraph
 	}
 	return ""
+}
+
+func (x *DraftDoorPitchResponse) GetOpening() string {
+	if x != nil {
+		return x.Opening
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchResponse) GetWhyThisDoor() string {
+	if x != nil {
+		return x.WhyThisDoor
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchResponse) GetPitch() string {
+	if x != nil {
+		return x.Pitch
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchResponse) GetProductToLead() string {
+	if x != nil {
+		return x.ProductToLead
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchResponse) GetAsk() string {
+	if x != nil {
+		return x.Ask
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchResponse) GetClose() string {
+	if x != nil {
+		return x.Close
+	}
+	return ""
+}
+
+func (x *DraftDoorPitchResponse) GetSources() []*Citation {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
 }
 
 func (x *DraftDoorPitchResponse) GetAttribution() *ModelAttribution {
@@ -1497,7 +1663,7 @@ type LlmOnlyBaselineRequest struct {
 
 func (x *LlmOnlyBaselineRequest) Reset() {
 	*x = LlmOnlyBaselineRequest{}
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +1675,7 @@ func (x *LlmOnlyBaselineRequest) String() string {
 func (*LlmOnlyBaselineRequest) ProtoMessage() {}
 
 func (x *LlmOnlyBaselineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1688,7 @@ func (x *LlmOnlyBaselineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LlmOnlyBaselineRequest.ProtoReflect.Descriptor instead.
 func (*LlmOnlyBaselineRequest) Descriptor() ([]byte, []int) {
-	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *LlmOnlyBaselineRequest) GetMeta() *v1.RequestMeta {
@@ -1583,7 +1749,7 @@ type LlmOnlyBaselineResponse struct {
 
 func (x *LlmOnlyBaselineResponse) Reset() {
 	*x = LlmOnlyBaselineResponse{}
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1595,7 +1761,7 @@ func (x *LlmOnlyBaselineResponse) String() string {
 func (*LlmOnlyBaselineResponse) ProtoMessage() {}
 
 func (x *LlmOnlyBaselineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_karum_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_karum_agent_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1608,7 +1774,7 @@ func (x *LlmOnlyBaselineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LlmOnlyBaselineResponse.ProtoReflect.Descriptor instead.
 func (*LlmOnlyBaselineResponse) Descriptor() ([]byte, []int) {
-	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_karum_agent_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *LlmOnlyBaselineResponse) GetText() string {
@@ -1721,13 +1887,17 @@ const file_karum_agent_v1_agent_proto_rawDesc = "" +
 	"sharedTags\x125\n" +
 	"\baffinity\x18\x02 \x01(\v2\x19.karum.common.v1.SubScoreR\baffinity\x127\n" +
 	"\fcompare_tags\x18\x03 \x03(\v2\x14.karum.common.v1.TagR\vcompareTags\x125\n" +
-	"\x05audit\x18\x04 \x01(\v2\x1f.karum.agent.v1.MenuAuditResultR\x05audit\"\x9f\x01\n" +
+	"\x05audit\x18\x04 \x01(\v2\x1f.karum.agent.v1.MenuAuditResultR\x05audit\"?\n" +
+	"\bCitation\x12\x1f\n" +
+	"\vevidence_id\x18\x01 \x01(\tR\n" +
+	"evidenceId\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"\x9f\x01\n" +
 	"\n" +
 	"Battlecard\x12\x1a\n" +
 	"\bheadline\x18\x01 \x01(\tR\bheadline\x12%\n" +
 	"\x0eincumbent_name\x18\x02 \x01(\tR\rincumbentName\x12%\n" +
 	"\x0etalking_points\x18\x03 \x03(\tR\rtalkingPoints\x12'\n" +
-	"\x0fcompare_summary\x18\x04 \x01(\tR\x0ecompareSummary\"\xb4\x02\n" +
+	"\x0fcompare_summary\x18\x04 \x01(\tR\x0ecompareSummary\"\xa6\x03\n" +
 	"\x15DraftDoorPitchRequest\x120\n" +
 	"\x04meta\x18\x01 \x01(\v2\x1c.karum.common.v1.RequestMetaR\x04meta\x120\n" +
 	"\x04mode\x18\x02 \x01(\x0e2\x1c.karum.agent.v1.CampaignModeR\x04mode\x122\n" +
@@ -1735,14 +1905,26 @@ const file_karum_agent_v1_agent_proto_rawDesc = "" +
 	"\x04door\x18\x04 \x01(\v2\x1b.karum.agent.v1.DoorContextR\x04door\x12\x12\n" +
 	"\x04city\x18\x05 \x01(\tR\x04city\x12\x1b\n" +
 	"\tmax_words\x18\x06 \x01(\x05R\bmaxWords\x12!\n" +
-	"\fevidence_ids\x18\a \x03(\tR\vevidenceIds\"\xf5\x02\n" +
+	"\fevidence_ids\x18\a \x03(\tR\vevidenceIds\x12\"\n" +
+	"\finstructions\x18\b \x01(\tR\finstructions\x12#\n" +
+	"\rattachment_id\x18\t \x01(\tR\fattachmentId\x12'\n" +
+	"\x0fattachment_name\x18\n" +
+	" \x01(\tR\x0eattachmentName\"\xcd\x04\n" +
 	"\x16DraftDoorPitchResponse\x12\x16\n" +
 	"\x06script\x18\x01 \x01(\tR\x06script\x12:\n" +
 	"\n" +
 	"battlecard\x18\x02 \x01(\v2\x1a.karum.agent.v1.BattlecardR\n" +
 	"battlecard\x12<\n" +
 	"\x0frecommended_sku\x18\x03 \x01(\v2\x13.karum.agent.v1.SkuR\x0erecommendedSku\x12%\n" +
-	"\x0emode_paragraph\x18\x04 \x01(\tR\rmodeParagraph\x12B\n" +
+	"\x0emode_paragraph\x18\x04 \x01(\tR\rmodeParagraph\x12\x18\n" +
+	"\aopening\x18\b \x01(\tR\aopening\x12\"\n" +
+	"\rwhy_this_door\x18\t \x01(\tR\vwhyThisDoor\x12\x14\n" +
+	"\x05pitch\x18\n" +
+	" \x01(\tR\x05pitch\x12&\n" +
+	"\x0fproduct_to_lead\x18\v \x01(\tR\rproductToLead\x12\x10\n" +
+	"\x03ask\x18\f \x01(\tR\x03ask\x12\x14\n" +
+	"\x05close\x18\r \x01(\tR\x05close\x122\n" +
+	"\asources\x18\x0e \x03(\v2\x18.karum.agent.v1.CitationR\asources\x12B\n" +
 	"\vattribution\x18\x05 \x01(\v2 .karum.agent.v1.ModelAttributionR\vattribution\x129\n" +
 	"\n" +
 	"error_code\x18\x06 \x01(\x0e2\x1a.karum.common.v1.ErrorCodeR\terrorCode\x12#\n" +
@@ -1817,7 +1999,7 @@ func file_karum_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_karum_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_karum_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_karum_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_karum_agent_v1_agent_proto_goTypes = []any{
 	(CampaignMode)(0),               // 0: karum.agent.v1.CampaignMode
 	(JobState)(0),                   // 1: karum.agent.v1.JobState
@@ -1834,64 +2016,66 @@ var file_karum_agent_v1_agent_proto_goTypes = []any{
 	(*AuditMenuRequest)(nil),        // 12: karum.agent.v1.AuditMenuRequest
 	(*AuditMenuResponse)(nil),       // 13: karum.agent.v1.AuditMenuResponse
 	(*DoorContext)(nil),             // 14: karum.agent.v1.DoorContext
-	(*Battlecard)(nil),              // 15: karum.agent.v1.Battlecard
-	(*DraftDoorPitchRequest)(nil),   // 16: karum.agent.v1.DraftDoorPitchRequest
-	(*DraftDoorPitchResponse)(nil),  // 17: karum.agent.v1.DraftDoorPitchResponse
-	(*LlmOnlyBaselineRequest)(nil),  // 18: karum.agent.v1.LlmOnlyBaselineRequest
-	(*LlmOnlyBaselineResponse)(nil), // 19: karum.agent.v1.LlmOnlyBaselineResponse
-	(*timestamppb.Timestamp)(nil),   // 20: google.protobuf.Timestamp
-	(v1.ErrorCode)(0),               // 21: karum.common.v1.ErrorCode
-	(*v1.EntityRef)(nil),            // 22: karum.common.v1.EntityRef
-	(*v1.Tag)(nil),                  // 23: karum.common.v1.Tag
-	(*v1.RequestMeta)(nil),          // 24: karum.common.v1.RequestMeta
-	(*v1.SubScore)(nil),             // 25: karum.common.v1.SubScore
+	(*Citation)(nil),                // 15: karum.agent.v1.Citation
+	(*Battlecard)(nil),              // 16: karum.agent.v1.Battlecard
+	(*DraftDoorPitchRequest)(nil),   // 17: karum.agent.v1.DraftDoorPitchRequest
+	(*DraftDoorPitchResponse)(nil),  // 18: karum.agent.v1.DraftDoorPitchResponse
+	(*LlmOnlyBaselineRequest)(nil),  // 19: karum.agent.v1.LlmOnlyBaselineRequest
+	(*LlmOnlyBaselineResponse)(nil), // 20: karum.agent.v1.LlmOnlyBaselineResponse
+	(*timestamppb.Timestamp)(nil),   // 21: google.protobuf.Timestamp
+	(v1.ErrorCode)(0),               // 22: karum.common.v1.ErrorCode
+	(*v1.EntityRef)(nil),            // 23: karum.common.v1.EntityRef
+	(*v1.Tag)(nil),                  // 24: karum.common.v1.Tag
+	(*v1.RequestMeta)(nil),          // 25: karum.common.v1.RequestMeta
+	(*v1.SubScore)(nil),             // 26: karum.common.v1.SubScore
 }
 var file_karum_agent_v1_agent_proto_depIdxs = []int32{
 	2,  // 0: karum.agent.v1.TraceEvent.stage:type_name -> karum.agent.v1.TraceStage
 	3,  // 1: karum.agent.v1.TraceEvent.status:type_name -> karum.agent.v1.TraceStatus
-	20, // 2: karum.agent.v1.TraceEvent.occurred_at:type_name -> google.protobuf.Timestamp
-	21, // 3: karum.agent.v1.TraceEvent.error_code:type_name -> karum.common.v1.ErrorCode
+	21, // 2: karum.agent.v1.TraceEvent.occurred_at:type_name -> google.protobuf.Timestamp
+	22, // 3: karum.agent.v1.TraceEvent.error_code:type_name -> karum.common.v1.ErrorCode
 	6,  // 4: karum.agent.v1.BrandContext.skus:type_name -> karum.agent.v1.Sku
 	8,  // 5: karum.agent.v1.Incumbent.sources:type_name -> karum.agent.v1.GroundingSource
-	22, // 6: karum.agent.v1.MenuAuditTarget.door:type_name -> karum.common.v1.EntityRef
-	23, // 7: karum.agent.v1.MenuAuditTarget.taste_tags:type_name -> karum.common.v1.Tag
-	22, // 8: karum.agent.v1.MenuAuditResult.door:type_name -> karum.common.v1.EntityRef
+	23, // 6: karum.agent.v1.MenuAuditTarget.door:type_name -> karum.common.v1.EntityRef
+	24, // 7: karum.agent.v1.MenuAuditTarget.taste_tags:type_name -> karum.common.v1.Tag
+	23, // 8: karum.agent.v1.MenuAuditResult.door:type_name -> karum.common.v1.EntityRef
 	9,  // 9: karum.agent.v1.MenuAuditResult.incumbents:type_name -> karum.agent.v1.Incumbent
 	8,  // 10: karum.agent.v1.MenuAuditResult.sources:type_name -> karum.agent.v1.GroundingSource
-	24, // 11: karum.agent.v1.AuditMenuRequest.meta:type_name -> karum.common.v1.RequestMeta
+	25, // 11: karum.agent.v1.AuditMenuRequest.meta:type_name -> karum.common.v1.RequestMeta
 	0,  // 12: karum.agent.v1.AuditMenuRequest.mode:type_name -> karum.agent.v1.CampaignMode
 	10, // 13: karum.agent.v1.AuditMenuRequest.targets:type_name -> karum.agent.v1.MenuAuditTarget
 	11, // 14: karum.agent.v1.AuditMenuResponse.results:type_name -> karum.agent.v1.MenuAuditResult
 	4,  // 15: karum.agent.v1.AuditMenuResponse.attribution:type_name -> karum.agent.v1.ModelAttribution
-	21, // 16: karum.agent.v1.AuditMenuResponse.error_code:type_name -> karum.common.v1.ErrorCode
-	23, // 17: karum.agent.v1.DoorContext.shared_tags:type_name -> karum.common.v1.Tag
-	25, // 18: karum.agent.v1.DoorContext.affinity:type_name -> karum.common.v1.SubScore
-	23, // 19: karum.agent.v1.DoorContext.compare_tags:type_name -> karum.common.v1.Tag
+	22, // 16: karum.agent.v1.AuditMenuResponse.error_code:type_name -> karum.common.v1.ErrorCode
+	24, // 17: karum.agent.v1.DoorContext.shared_tags:type_name -> karum.common.v1.Tag
+	26, // 18: karum.agent.v1.DoorContext.affinity:type_name -> karum.common.v1.SubScore
+	24, // 19: karum.agent.v1.DoorContext.compare_tags:type_name -> karum.common.v1.Tag
 	11, // 20: karum.agent.v1.DoorContext.audit:type_name -> karum.agent.v1.MenuAuditResult
-	24, // 21: karum.agent.v1.DraftDoorPitchRequest.meta:type_name -> karum.common.v1.RequestMeta
+	25, // 21: karum.agent.v1.DraftDoorPitchRequest.meta:type_name -> karum.common.v1.RequestMeta
 	0,  // 22: karum.agent.v1.DraftDoorPitchRequest.mode:type_name -> karum.agent.v1.CampaignMode
 	7,  // 23: karum.agent.v1.DraftDoorPitchRequest.brand:type_name -> karum.agent.v1.BrandContext
 	14, // 24: karum.agent.v1.DraftDoorPitchRequest.door:type_name -> karum.agent.v1.DoorContext
-	15, // 25: karum.agent.v1.DraftDoorPitchResponse.battlecard:type_name -> karum.agent.v1.Battlecard
+	16, // 25: karum.agent.v1.DraftDoorPitchResponse.battlecard:type_name -> karum.agent.v1.Battlecard
 	6,  // 26: karum.agent.v1.DraftDoorPitchResponse.recommended_sku:type_name -> karum.agent.v1.Sku
-	4,  // 27: karum.agent.v1.DraftDoorPitchResponse.attribution:type_name -> karum.agent.v1.ModelAttribution
-	21, // 28: karum.agent.v1.DraftDoorPitchResponse.error_code:type_name -> karum.common.v1.ErrorCode
-	24, // 29: karum.agent.v1.LlmOnlyBaselineRequest.meta:type_name -> karum.common.v1.RequestMeta
-	7,  // 30: karum.agent.v1.LlmOnlyBaselineRequest.brand:type_name -> karum.agent.v1.BrandContext
-	0,  // 31: karum.agent.v1.LlmOnlyBaselineRequest.mode:type_name -> karum.agent.v1.CampaignMode
-	4,  // 32: karum.agent.v1.LlmOnlyBaselineResponse.attribution:type_name -> karum.agent.v1.ModelAttribution
-	21, // 33: karum.agent.v1.LlmOnlyBaselineResponse.error_code:type_name -> karum.common.v1.ErrorCode
-	12, // 34: karum.agent.v1.AgentService.AuditMenu:input_type -> karum.agent.v1.AuditMenuRequest
-	16, // 35: karum.agent.v1.AgentService.DraftDoorPitch:input_type -> karum.agent.v1.DraftDoorPitchRequest
-	18, // 36: karum.agent.v1.AgentService.LlmOnlyBaseline:input_type -> karum.agent.v1.LlmOnlyBaselineRequest
-	13, // 37: karum.agent.v1.AgentService.AuditMenu:output_type -> karum.agent.v1.AuditMenuResponse
-	17, // 38: karum.agent.v1.AgentService.DraftDoorPitch:output_type -> karum.agent.v1.DraftDoorPitchResponse
-	19, // 39: karum.agent.v1.AgentService.LlmOnlyBaseline:output_type -> karum.agent.v1.LlmOnlyBaselineResponse
-	37, // [37:40] is the sub-list for method output_type
-	34, // [34:37] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	15, // 27: karum.agent.v1.DraftDoorPitchResponse.sources:type_name -> karum.agent.v1.Citation
+	4,  // 28: karum.agent.v1.DraftDoorPitchResponse.attribution:type_name -> karum.agent.v1.ModelAttribution
+	22, // 29: karum.agent.v1.DraftDoorPitchResponse.error_code:type_name -> karum.common.v1.ErrorCode
+	25, // 30: karum.agent.v1.LlmOnlyBaselineRequest.meta:type_name -> karum.common.v1.RequestMeta
+	7,  // 31: karum.agent.v1.LlmOnlyBaselineRequest.brand:type_name -> karum.agent.v1.BrandContext
+	0,  // 32: karum.agent.v1.LlmOnlyBaselineRequest.mode:type_name -> karum.agent.v1.CampaignMode
+	4,  // 33: karum.agent.v1.LlmOnlyBaselineResponse.attribution:type_name -> karum.agent.v1.ModelAttribution
+	22, // 34: karum.agent.v1.LlmOnlyBaselineResponse.error_code:type_name -> karum.common.v1.ErrorCode
+	12, // 35: karum.agent.v1.AgentService.AuditMenu:input_type -> karum.agent.v1.AuditMenuRequest
+	17, // 36: karum.agent.v1.AgentService.DraftDoorPitch:input_type -> karum.agent.v1.DraftDoorPitchRequest
+	19, // 37: karum.agent.v1.AgentService.LlmOnlyBaseline:input_type -> karum.agent.v1.LlmOnlyBaselineRequest
+	13, // 38: karum.agent.v1.AgentService.AuditMenu:output_type -> karum.agent.v1.AuditMenuResponse
+	18, // 39: karum.agent.v1.AgentService.DraftDoorPitch:output_type -> karum.agent.v1.DraftDoorPitchResponse
+	20, // 40: karum.agent.v1.AgentService.LlmOnlyBaseline:output_type -> karum.agent.v1.LlmOnlyBaselineResponse
+	38, // [38:41] is the sub-list for method output_type
+	35, // [35:38] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_karum_agent_v1_agent_proto_init() }
@@ -1905,7 +2089,7 @@ func file_karum_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_karum_agent_v1_agent_proto_rawDesc), len(file_karum_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   16,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

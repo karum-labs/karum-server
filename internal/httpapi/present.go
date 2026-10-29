@@ -131,6 +131,7 @@ type enrichBody struct {
 	Address     string  `json:"address,omitempty"`
 	Hours       string  `json:"hours,omitempty"`
 	Website     string  `json:"website,omitempty"`
+	Phone       string  `json:"phone,omitempty"`
 	OpenStatus  string  `json:"open_status"`
 	Unknown     bool    `json:"unknown"`
 	Lat         float64 `json:"lat,omitempty"`
@@ -161,6 +162,25 @@ type pitchBody struct {
 	Battlecard    *battleBody `json:"battlecard,omitempty"`
 	ModeParagraph string      `json:"mode_paragraph,omitempty"`
 	Template      bool        `json:"template"`
+	// Opening, WhyThisDoor, Pitch, ProductToLead, Ask, Close are the six
+	// citation-free sections of the pitch (PLAN.md §64).
+	Opening       string `json:"opening,omitempty"`
+	WhyThisDoor   string `json:"why_this_door,omitempty"`
+	Pitch         string `json:"pitch,omitempty"`
+	ProductToLead string `json:"product_to_lead,omitempty"`
+	Ask           string `json:"ask,omitempty"`
+	Close         string `json:"close,omitempty"`
+	// Sources are the machine-readable citations referenced by the prose.
+	Sources []citationBody `json:"sources,omitempty"`
+	// AttachmentID and AttachmentName identify the brand file attached when
+	// the pitch was generated or regenerated (PLAN.md §65).
+	AttachmentID   string `json:"attachment_id,omitempty"`
+	AttachmentName string `json:"attachment_name,omitempty"`
+}
+
+type citationBody struct {
+	EvidenceID string `json:"evidence_id"`
+	Text       string `json:"text,omitempty"`
 }
 
 type battleBody struct {
@@ -438,7 +458,8 @@ func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrat
 	if door.Enrichment != nil {
 		body.Enrichment = &enrichBody{
 			Address: door.Enrichment.Address, Hours: door.Enrichment.Hours,
-			Website: door.Enrichment.Website, OpenStatus: door.Enrichment.OpenStatus,
+			Website: door.Enrichment.Website, Phone: door.Enrichment.Phone,
+			OpenStatus: door.Enrichment.OpenStatus,
 			Unknown: door.Enrichment.Unknown, Lat: door.Enrichment.Lat, Lng: door.Enrichment.Lng,
 			Attribution: door.Enrichment.Attribution,
 		}
@@ -479,7 +500,14 @@ func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrat
 	if pitch.Script != "" || pitch.Template {
 		item := &pitchBody{
 			Script: pitch.Script, Template: pitch.Template, ModeParagraph: pitch.ModeParagraph,
+			Opening: pitch.Opening, WhyThisDoor: pitch.WhyThisDoor, Pitch: pitch.Pitch,
+			ProductToLead: pitch.ProductToLead, Ask: pitch.Ask, Close: pitch.Close,
 			SKU: skuBody{ID: pitch.RecommendedSKU.ID, Name: pitch.RecommendedSKU.Name},
+			AttachmentID:   pitch.AttachmentID,
+			AttachmentName: pitch.AttachmentName,
+		}
+		for _, source := range pitch.Sources {
+			item.Sources = append(item.Sources, citationBody{EvidenceID: source.EvidenceID, Text: source.Text})
 		}
 		if pitch.Battlecard != nil {
 			item.Battlecard = &battleBody{

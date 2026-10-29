@@ -317,6 +317,9 @@ func (r *Runner) RegenerateDoor(
 	runID string,
 	doorID string,
 	evidenceIDs []string,
+	instructions string,
+	attachmentID string,
+	attachmentName string,
 ) (*Run, error) {
 	run, ok := r.store.Get(runID)
 	if !ok {
@@ -340,13 +343,16 @@ func (r *Runner) RegenerateDoor(
 	err := r.callAI(ctx, func(ctx context.Context) error {
 		var callErr error
 		draft, callErr = r.agent.DraftDoorPitch(ctx, DraftRequest{
-			Brand:       run.Brand,
-			Door:        door,
-			Finding:     finding,
-			City:        run.City,
-			Mode:        run.Mode,
-			EvidenceIDs: evidenceIDs,
-			MaxWords:    220,
+			Brand:           run.Brand,
+			Door:            door,
+			Finding:         finding,
+			City:            run.City,
+			Mode:            run.Mode,
+			EvidenceIDs:     evidenceIDs,
+			Instructions:    instructions,
+			AttachmentID:    attachmentID,
+			AttachmentName:  attachmentName,
+			MaxWords:        220,
 		})
 		return callErr
 	})
@@ -368,6 +374,15 @@ func (r *Runner) RegenerateDoor(
 		Battlecard:     draft.Battlecard,
 		RecommendedSKU: draft.RecommendedSKU,
 		ModeParagraph:  draft.ModeParagraph,
+		Opening:        draft.Opening,
+		WhyThisDoor:    draft.WhyThisDoor,
+		Pitch:          draft.Pitch,
+		ProductToLead:  draft.ProductToLead,
+		Ask:            draft.Ask,
+		Close:          draft.Close,
+		Sources:        draft.Sources,
+		AttachmentID:   attachmentID,
+		AttachmentName: attachmentName,
 		ModelID:        draft.ModelID,
 		PromptVersion:  draft.PromptVersion,
 		EvidenceIDs:    draft.EvidenceIDs,
@@ -444,6 +459,13 @@ func (r *Runner) draftDoor(
 			Battlecard:     draft.Battlecard,
 			RecommendedSKU: draft.RecommendedSKU,
 			ModeParagraph:  draft.ModeParagraph,
+			Opening:        draft.Opening,
+			WhyThisDoor:    draft.WhyThisDoor,
+			Pitch:          draft.Pitch,
+			ProductToLead:  draft.ProductToLead,
+			Ask:            draft.Ask,
+			Close:          draft.Close,
+			Sources:        draft.Sources,
 			ModelID:        draft.ModelID,
 			PromptVersion:  draft.PromptVersion,
 			EvidenceIDs:    draft.EvidenceIDs,
@@ -485,13 +507,16 @@ func templatePitch(door Door, finding AuditFinding, brand BrandContext, mode Mod
 	if brandName == "" {
 		brandName = "the brand"
 	}
+	// A readable template: one line for the door, one line for the brand fit,
+	// one line for the tags the door shares with the brand (capped so the
+	// template never becomes a wall of text).
 	parts := []string{fmt.Sprintf("%s is on the returned shortlist for %s.", door.Entity.Name, brandName)}
-	if evidenceID != "" {
-		parts = append(parts, fmt.Sprintf("Ranking call: %s.", evidenceID))
-	}
 	if len(door.SharedTags) > 0 {
 		labels := make([]string, 0, len(door.SharedTags))
 		for _, tag := range door.SharedTags {
+			if len(labels) >= 6 {
+				break
+			}
 			label := tag.Label
 			if label == "" {
 				label = tag.URN
@@ -503,8 +528,17 @@ func templatePitch(door Door, finding AuditFinding, brand BrandContext, mode Mod
 
 	pitch := Pitch{
 		Script:         strings.Join(parts, " "),
+		Opening:        parts[0],
+		Pitch:          strings.Join(parts[1:], " "),
 		RecommendedSKU: firstSKU(brand),
 		Template:       true,
+		Sources:        []Citation{},
+	}
+	if evidenceID != "" {
+		pitch.Sources = append(pitch.Sources, Citation{
+			EvidenceID: evidenceID,
+			Text:       "Ranking call: " + evidenceID,
+		})
 	}
 	if mode == ModeWholesale {
 		pitch.ModeParagraph = ""

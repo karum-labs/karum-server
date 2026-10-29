@@ -164,6 +164,8 @@ func registerRoutes(r *gin.Engine, h *Handler) {
 		v1.POST("/scout/:id/drafts/run-sheet", h.optionalAuth(), h.postRunSheet)
 		v1.POST("/scout/:id/drafts/site-brief", h.optionalAuth(), h.postSiteBrief)
 		v1.POST("/scout/:id/drafts/doors/:doorID", h.optionalAuth(), h.postDoorPitch)
+		v1.POST("/scout/:id/drafts/doors/:doorID/export", h.optionalAuth(), h.postPitchExport)
+		v1.POST("/scout/:id/drafts/doors/:doorID/contact", h.optionalAuth(), h.postContact)
 		v1.GET("/campaigns/:id", h.optionalAuth(), h.getCampaign)
 		v1.GET("/places/details", h.getPlaceDetails)
 		v1.GET("/places/photo", h.getPlacePhoto)

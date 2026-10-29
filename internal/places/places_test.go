@@ -23,17 +23,20 @@ func TestEnrichmentCarriesWebsiteAndClosed(t *testing.T) {
 	var sawKey, sawMask bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawKey = r.Header.Get("X-Goog-Api-Key") == "places-key"
-		sawMask = strings.Contains(r.Header.Get("X-Goog-FieldMask"), "websiteUri")
+		mask := r.Header.Get("X-Goog-FieldMask")
+		sawMask = strings.Contains(mask, "websiteUri") &&
+			strings.Contains(mask, "nationalPhoneNumber") &&
+			strings.Contains(mask, "internationalPhoneNumber")
 		body, _ := io.ReadAll(r.Body)
 		text := string(body)
 		if !strings.Contains(text, "Whisler") && !strings.Contains(text, "Closed Bar") {
 			t.Errorf("body = %s", text)
 		}
 		if strings.Contains(string(body), "Closed Bar") {
-			_, _ = w.Write([]byte(`{"places":[{"formattedAddress":"1 Sixth St","businessStatus":"CLOSED_PERMANENTLY","websiteUri":"https://example.test"}]}`))
+			_, _ = w.Write([]byte(`{"places":[{"formattedAddress":"1 Sixth St","businessStatus":"CLOSED_PERMANENTLY","websiteUri":"https://example.test","internationalPhoneNumber":"+1 555-0100"}]}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"places":[{"formattedAddress":"1314 E 6th St","businessStatus":"OPERATIONAL","websiteUri":"https://whislers.example","location":{"latitude":30.26,"longitude":-97.73},"regularOpeningHours":{"weekdayDescriptions":["Monday: 4:00 PM – 2:00 AM"]}}]}`))
+		_, _ = w.Write([]byte(`{"places":[{"formattedAddress":"1314 E 6th St","businessStatus":"OPERATIONAL","websiteUri":"https://whislers.example","location":{"latitude":30.26,"longitude":-97.73},"regularOpeningHours":{"weekdayDescriptions":["Monday: 4:00 PM – 2:00 AM"]},"nationalPhoneNumber":"(512) 555-0100","internationalPhoneNumber":"+1 512-555-0100"}]}`))
 	}))
 	defer srv.Close()
 
@@ -48,7 +51,7 @@ func TestEnrichmentCarriesWebsiteAndClosed(t *testing.T) {
 	if !sawKey || !sawMask {
 		t.Fatalf("key=%v mask=%v", sawKey, sawMask)
 	}
-	if got[0].Unknown || got[0].Website != "https://whislers.example" || got[0].Closed {
+	if got[0].Unknown || got[0].Website != "https://whislers.example" || got[0].Phone != "+1 512-555-0100" || got[0].Closed {
 		t.Fatalf("open door = %+v", got[0])
 	}
 	if !strings.Contains(got[0].Hours, "Monday") {

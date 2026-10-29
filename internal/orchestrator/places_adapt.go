@@ -18,7 +18,7 @@ func fromPlaceRows(rows []places.Enrichment) []Enrichment {
 	for i, row := range rows {
 		out[i] = Enrichment{
 			ID: row.ID, Address: row.Address, Hours: row.Hours, Website: row.Website,
-			OpenStatus: row.OpenStatus, Lat: row.Lat, Lng: row.Lng,
+			Phone: row.Phone, OpenStatus: row.OpenStatus, Lat: row.Lat, Lng: row.Lng,
 			Closed: row.Closed, Unknown: row.Unknown, Attribution: row.Attribution,
 		}
 	}

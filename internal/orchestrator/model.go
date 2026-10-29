@@ -208,6 +208,15 @@ type AuditResult struct {
 	ErrorMessage string
 }
 
+// Citation is one machine-readable citation: an evidence id the draft cites
+// plus the citation text the model wrote. Prose never carries ids inline;
+// citations render as a separate source list at the bottom of the pitch
+// (PLAN.md §64).
+type Citation struct {
+	EvidenceID string
+	Text       string
+}
+
 // SKU is one entry of the brand's own product list.
 type SKU struct {
 	ID   string
@@ -236,6 +245,15 @@ type DraftRequest struct {
 	City        string
 	Mode        Mode
 	EvidenceIDs []string
+	// Instructions is the operator's direction for the redraft (PLAN.md §65):
+	// a suggestion, not a rule. It may include extracted attachment text, both
+	// fenced as untrusted data before reaching the model.
+	Instructions string
+	// AttachmentID and AttachmentName identify the uploaded brand file, when
+	// one was attached. They are stored with the pitch so the client can show
+	// a chip and the run records which brand material informed the draft.
+	AttachmentID   string
+	AttachmentName string
 	// MaxWords is the hard cap per text the service enforces
 	// (agent.proto: the cap so a judge can finish the read).
 	MaxWords int
@@ -247,6 +265,16 @@ type DraftResult struct {
 	Battlecard     *Battlecard
 	RecommendedSKU SKU
 	ModeParagraph  string
+	// Opening, WhyThisDoor, Pitch, ProductToLead, Ask, Close are the six
+	// citation-free sections of the pitch (PLAN.md §64).
+	Opening       string
+	WhyThisDoor   string
+	Pitch         string
+	ProductToLead string
+	Ask           string
+	Close         string
+	// Sources are the machine-readable citations referenced by the prose.
+	Sources []Citation
 	// ModelID, PromptVersion, and EvidenceIDs are the AI response's
 	// attribution; every response carries it (PLAN.md §3).
 	ModelID       string
@@ -280,6 +308,20 @@ type Pitch struct {
 	RecommendedSKU SKU
 	ModeParagraph  string
 	Template       bool
+	// Opening, WhyThisDoor, Pitch, ProductToLead, Ask, Close are the six
+	// citation-free sections of the pitch (PLAN.md §64).
+	Opening       string
+	WhyThisDoor   string
+	Pitch         string
+	ProductToLead string
+	Ask           string
+	Close         string
+	// Sources are the machine-readable citations referenced by the prose.
+	Sources []Citation
+	// AttachmentID and AttachmentName identify the brand file attached when
+	// the pitch was generated or regenerated (PLAN.md §65).
+	AttachmentID   string
+	AttachmentName string
 	// ModelID, PromptVersion, and EvidenceIDs are the AI response's
 	// attribution, kept with the pitch so the run records which model wrote
 	// it and which evidence it cited (PLAN.md §3).
@@ -341,6 +383,7 @@ type Enrichment struct {
 	Address     string
 	Hours       string
 	Website     string
+	Phone       string
 	OpenStatus  string
 	Lat         float64
 	Lng         float64

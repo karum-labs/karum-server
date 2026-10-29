@@ -13,17 +13,21 @@ import (
 	"github.com/karum-labs/karum-server/internal/resilience"
 )
 
-// Renderer draws the run-sheet and the site brief. A failure here must not
-// remove the campaign the screen already has.
+// Renderer draws the run-sheet, the site brief, and a single-door pitch PDF.
+// A failure here must not remove the campaign the screen already has.
 type Renderer interface {
 	RunSheet(pdf.Document) ([]byte, error)
 	SiteBrief(pdf.Document) ([]byte, error)
+	PitchExport(pdf.PitchDocument) ([]byte, error)
 }
 
 type stockRenderer struct{}
 
 func (stockRenderer) RunSheet(doc pdf.Document) ([]byte, error)  { return pdf.RunSheet(doc) }
 func (stockRenderer) SiteBrief(doc pdf.Document) ([]byte, error) { return pdf.SiteBrief(doc) }
+func (stockRenderer) PitchExport(doc pdf.PitchDocument) ([]byte, error) {
+	return pdf.PitchExport(doc)
+}
 
 // Probes report dependency modes on GET /health. Nil probes are "not_configured".
 type Probes struct {
@@ -47,6 +51,9 @@ type Dependencies struct {
 	// RegenLimiter bounds the expensive per-door regenerate route, the one
 	// other path that bills a model call.
 	RegenLimiter *resilience.Limiter
+	// ContactLimiter bounds send-per-door sends per visitor and per
+	// recipient, so a bad loop cannot spam one venue (PLAN.md §67).
+	ContactLimiter *resilience.Limiter
 	// PlacesLimiter bounds the place-details and photo proxies. Both are
 	// public and every call is billed to the gateway's Places key.
 	PlacesLimiter *resilience.Limiter
@@ -75,6 +82,7 @@ type Handler struct {
 	limiter       *resilience.Limiter
 	loginLimiter  *resilience.Limiter
 	regenLimiter  *resilience.Limiter
+	contactLimiter *resilience.Limiter
 	placesLimiter *resilience.Limiter
 	placesBase    string
 	idem          resilience.IdempotencyStore
@@ -101,6 +109,11 @@ func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 	if deps.RegenLimiter == nil {
 		deps.RegenLimiter = resilience.NewLimiter(0.5, 5, 20, 40)
 	}
+	if deps.ContactLimiter == nil {
+		// One send per minute per visitor, burst 3; globally 5 per second,
+		// burst 20, so a bad loop cannot spam one venue.
+		deps.ContactLimiter = resilience.NewLimiter(1/60, 3, 5, 20)
+	}
 	if deps.PlacesLimiter == nil {
 		// A visitor tapping pins makes one details call per tap and one photo
 		// call per bubble; 3 per second with a burst of 15 is far above
@@ -117,6 +130,7 @@ func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 		cfg: cfg, live: deps.Live, fixture: deps.Fixture, store: deps.Store,
 		geocoder: deps.Geocoder, catalog: deps.Catalog, limiter: deps.Limiter,
 		loginLimiter: deps.LoginLimiter, regenLimiter: deps.RegenLimiter,
+		contactLimiter: deps.ContactLimiter,
 		placesLimiter: deps.PlacesLimiter, placesBase: deps.PlacesBaseURL,
 		idem: deps.Idem, renderer: deps.Renderer, auth: deps.Auth, probes: deps.Probes, async: deps.Async,
 	}

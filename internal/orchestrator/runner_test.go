@@ -342,7 +342,7 @@ func TestRegenerateDoorCallsOnlyTheDraft(t *testing.T) {
 	draftCalls := len(agent.draftCalls)
 
 	agent.draftResult.Script = "Regenerated script (ev-0001)."
-	updated, err := runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil)
+	updated, err := runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("RegenerateDoor: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestRegenerateFailureKeepsThePreviousPitch(t *testing.T) {
 	before := run.Pitches["d-1"].Script
 
 	agent.draftErr = upstream("Vertex went away")
-	_, err = runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil)
+	_, err = runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil, "", "", "")
 	if err == nil {
 		t.Fatal("expected a typed error")
 	}
@@ -394,13 +394,18 @@ func TestTemplatePitchCitesOnlyEvidenceNumbers(t *testing.T) {
 	if !pitch.Template {
 		t.Fatal("template pitch must be marked as such")
 	}
+	// Stored prose is citation-free: no ev- tokens and no uncited digits.
 	citations := regexp.MustCompile(`ev-\d{4}`)
 	stripped := citations.ReplaceAllString(pitch.Script, "")
 	if regexp.MustCompile(`\d`).MatchString(stripped) {
 		t.Fatalf("template has an uncited number: %q", pitch.Script)
 	}
-	if !strings.Contains(pitch.Script, "ev-0001") {
-		t.Fatalf("template does not cite its evidence id: %q", pitch.Script)
+	if citations.MatchString(pitch.Script) {
+		t.Fatalf("template script still carries an inline id: %q", pitch.Script)
+	}
+	// The citation lives in Sources instead.
+	if len(pitch.Sources) != 1 || pitch.Sources[0].EvidenceID != "ev-0001" {
+		t.Fatalf("template sources missing the evidence citation: %+v", pitch.Sources)
 	}
 	if pitch.Battlecard == nil || pitch.Battlecard.IncumbentName != "Del Maguey" {
 		t.Fatal("template battlecard missing the sourced incumbent")
@@ -429,3 +434,4 @@ func TestTasteFailureFailsTheRun(t *testing.T) {
 		t.Fatalf("state = %q, want failed", run.State)
 	}
 }
+

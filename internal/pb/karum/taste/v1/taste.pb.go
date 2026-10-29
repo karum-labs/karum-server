@@ -1030,7 +1030,8 @@ type DoorCandidate struct {
 	// Model inference: true when the venue resolves outside the geocoded city;
 	// the card flags it (PLAN.md §14).
 	OutsideCity bool `protobuf:"varint,8,opt,name=outside_city,json=outsideCity,proto3" json:"outside_city,omitempty"`
-	// Model inference: the frozen server rank; the client renders this order
+	// Qloo fact: the gateway orders the board by S_door and carries this door's
+	// affinity rank from service-taste; the client renders the server order as-is
 	// and never re-sorts (PLAN.md §32).
 	Rank int32 `protobuf:"varint,9,opt,name=rank,proto3" json:"rank,omitempty"`
 	// Input: the evidence ids this door's numbers cite.
@@ -1254,7 +1255,9 @@ type ScoutDoorsRequest struct {
 	// 10 km for the heatmap (PLAN.md §6).
 	RadiusMeters int32 `protobuf:"varint,5,opt,name=radius_meters,json=radiusMeters,proto3" json:"radius_meters,omitempty"`
 	// Input: the door-shaping category tags applied as `filter.tags`; collab
-	// mode sends the non-competing tags on the same call (PLAN.md §10).
+	// mode sends the non-competing tags one call per tag (the fixture pack holds
+	// one recording per tag) and merges the ranked rows deterministically
+	// (PLAN.md §10).
 	CategoryTags []*v1.Tag `protobuf:"bytes,6,rep,name=category_tags,json=categoryTags,proto3" json:"category_tags,omitempty"`
 	// Input: the skip candidates as verified Qloo entity ids; the presets send
 	// them, so the skip batch can score them against the shortlist floor.
