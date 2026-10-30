@@ -77,7 +77,7 @@ func (s *Idempotency) Sweep(ctx context.Context) error {
 	}
 	_, err := s.pool.Exec(ctx, `
 		DELETE FROM idempotency_keys
-		WHERE created_at < now() - make_interval(secs => $1)
+		WHERE created_at < now() - ($1 * interval '1 second')
 	`, s.ttl.Seconds())
 	return err
 }

@@ -169,7 +169,11 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 	// consumed before the judge account could be seeded. A hosted Postgres may
 	// also be scaled to zero, so the wake sits inside the same budget. When this
 	// expires the gateway falls back to memory with no account system at all.
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	//
+	// CockroachDB applies DDL as schema-change jobs and took roughly 40-50 s per
+	// migration on a multi-region cluster, so the first boot (0001-0003) needs
+	// more than the old 90 s. Later boots skip applied migrations and stay fast.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	mem := orchestrator.NewStore()
