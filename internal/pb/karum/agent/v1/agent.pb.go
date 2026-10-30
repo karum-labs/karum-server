@@ -615,7 +615,16 @@ type BrandContext struct {
 	// echo a resolved Qloo entity name.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Input: the brand's own SKU list, plain text from the seed screen.
-	Skus          []*Sku `protobuf:"bytes,2,rep,name=skus,proto3" json:"skus,omitempty"`
+	Skus []*Sku `protobuf:"bytes,2,rep,name=skus,proto3" json:"skus,omitempty"`
+	// Input: the account's brand profile — what kind of brand it is, e.g.
+	// "craft soft drinks". Empty when the account has no profile.
+	Category string `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
+	// Input: the account's description of the brand and its products.
+	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	// Input: what sets the brand apart; the case a pitch argues from.
+	Positioning string `protobuf:"bytes,5,opt,name=positioning,proto3" json:"positioning,omitempty"`
+	// Input: the customers the brand sells to.
+	Audience      string `protobuf:"bytes,6,opt,name=audience,proto3" json:"audience,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -662,6 +671,34 @@ func (x *BrandContext) GetSkus() []*Sku {
 		return x.Skus
 	}
 	return nil
+}
+
+func (x *BrandContext) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *BrandContext) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *BrandContext) GetPositioning() string {
+	if x != nil {
+		return x.Positioning
+	}
+	return ""
+}
+
+func (x *BrandContext) GetAudience() string {
+	if x != nil {
+		return x.Audience
+	}
+	return ""
 }
 
 // GroundingSource is one citation the audit found; URLs are citations, never
@@ -1844,10 +1881,14 @@ const file_karum_agent_v1_agent_proto_rawDesc = "" +
 	"error_code\x18\f \x01(\x0e2\x1a.karum.common.v1.ErrorCodeR\terrorCode\")\n" +
 	"\x03Sku\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"K\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xc7\x01\n" +
 	"\fBrandContext\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
-	"\x04skus\x18\x02 \x03(\v2\x13.karum.agent.v1.SkuR\x04skus\"9\n" +
+	"\x04skus\x18\x02 \x03(\v2\x13.karum.agent.v1.SkuR\x04skus\x12\x1a\n" +
+	"\bcategory\x18\x03 \x01(\tR\bcategory\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x12 \n" +
+	"\vpositioning\x18\x05 \x01(\tR\vpositioning\x12\x1a\n" +
+	"\baudience\x18\x06 \x01(\tR\baudience\"9\n" +
 	"\x0fGroundingSource\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\"Z\n" +

@@ -227,6 +227,19 @@ type SKU struct {
 type BrandContext struct {
 	Name string
 	SKUs []SKU
+	// Category, Description, Positioning, and Audience come from the
+	// account's brand profile. They tell the pitch writer what the brand is,
+	// so the pitch argues why the brand fits the door instead of describing
+	// the door. All are empty when the account has no profile.
+	Category    string
+	Description string
+	Positioning string
+	Audience    string
+}
+
+// HasProfile reports whether the brand carries profile details.
+func (b BrandContext) HasProfile() bool {
+	return b.Category != "" || b.Description != "" || b.Positioning != "" || b.Audience != ""
 }
 
 // Battlecard is the displacement card attached when an incumbent is present.
@@ -307,7 +320,6 @@ type Pitch struct {
 	Battlecard     *Battlecard
 	RecommendedSKU SKU
 	ModeParagraph  string
-	Template       bool
 	// Opening, WhyThisDoor, Pitch, ProductToLead, Ask, Close are the six
 	// citation-free sections of the pitch (PLAN.md §64).
 	Opening       string

@@ -316,7 +316,7 @@ func TestRerunInsertsANewRun(t *testing.T) {
 	if got, ok := store.Get(first.ID); !ok || got.Baseline.Text != first.Baseline.Text {
 		t.Fatal("previous snapshot was not left intact")
 	}
-	newest, ok := store.NewestReady("austin-wholesale")
+	newest, ok := store.NewestReady("austin-wholesale", "")
 	if !ok || newest.ID != second.ID {
 		t.Fatalf("newest = %+v", newest)
 	}

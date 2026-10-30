@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/karum-labs/karum-server/internal/places"
@@ -75,6 +76,8 @@ type Runner struct {
 	aiBreaker     *resilience.Breaker
 	placesBreaker *resilience.Breaker
 	routesBreaker *resilience.Breaker
+	// routeRetried holds the run ids RefreshRoute already tried.
+	routeRetried sync.Map
 }
 
 // NewRunner builds a runner over the given transports. A nil store is created
@@ -160,6 +163,10 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 	}
 
 	run := r.blank(req)
+	// Store the run before the first slow stage: the client polls the job id
+	// as soon as the gateway answers, and an unstored id reads as "no such
+	// job" for as long as the baseline call takes.
+	r.store.Put(run)
 	if resolvedRaw {
 		r.trace(run, StageSeed, time.Now(), fmt.Sprintf("%d entities", len(req.Seed)), false)
 	}
@@ -294,9 +301,9 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Run, error) {
 		return run, err
 	}
 
-	if err := r.draftDoors(ctx, run, req, &degraded); err != nil {
-		return run, err
-	}
+	// Pitches are not drafted here. A run only finds and ranks doors; the
+	// operator drafts a pitch per door on demand (RegenerateDoor), so opening
+	// or re-running a campaign never bills a model call per door.
 
 	r.routeDoors(ctx, run)
 
@@ -320,6 +327,7 @@ func (r *Runner) RegenerateDoor(
 	instructions string,
 	attachmentID string,
 	attachmentName string,
+	brand *BrandContext,
 ) (*Run, error) {
 	run, ok := r.store.Get(runID)
 	if !ok {
@@ -338,12 +346,19 @@ func (r *Runner) RegenerateDoor(
 		evidenceIDs = runEvidenceIDs(run, door)
 	}
 
+	// The caller's brand profile, when it has one, is the brand the pitch
+	// sells; the run's seed brand is the fallback.
+	pitchBrand := run.Brand
+	if brand != nil && (brand.Name != "" || brand.HasProfile()) {
+		pitchBrand = *brand
+	}
+
 	started := time.Now()
 	var draft DraftResult
 	err := r.callAI(ctx, func(ctx context.Context) error {
 		var callErr error
 		draft, callErr = r.agent.DraftDoorPitch(ctx, DraftRequest{
-			Brand:           run.Brand,
+			Brand:           pitchBrand,
 			Door:            door,
 			Finding:         finding,
 			City:            run.City,
@@ -392,100 +407,6 @@ func (r *Runner) RegenerateDoor(
 	return run, nil
 }
 
-// draftDoors drafts the audited working shortlist.
-//
-// The audit is capped at the doors that can appear on the board
-// (workingShortlist), so drafting beyond that cap would bill a model call for
-// a door with no shelf audit behind it. The cap is surfaced as a warning so
-// the operator knows why later doors carry no stored pitch (PLAN.md §16-§18).
-func (r *Runner) draftDoors(
-	ctx context.Context,
-	run *Run,
-	req Request,
-	degraded *bool,
-) error {
-	limit := workingShortlist
-	if len(run.Doors) < limit {
-		limit = len(run.Doors)
-	}
-	if len(run.Doors) > limit {
-		run.Warnings = append(run.Warnings, fmt.Sprintf(
-			"pitch drafting is capped to the audited shortlist (%d of %d doors)",
-			limit, len(run.Doors),
-		))
-	}
-	for _, door := range run.Doors[:limit] {
-		if err := r.aborted(ctx, run); err != nil {
-			return err
-		}
-		r.draftDoor(ctx, run, door, req, degraded)
-	}
-	return nil
-}
-
-// draftDoor drafts one door, falling back to a template on any Vertex failure.
-func (r *Runner) draftDoor(
-	ctx context.Context,
-	run *Run,
-	door Door,
-	req Request,
-	degraded *bool,
-) {
-	finding, ok := run.Findings[door.Entity.ID]
-	if !ok {
-		finding = AuditFinding{Door: door.Entity, ShelfUnknown: true}
-	}
-
-	started := time.Now()
-	var draft DraftResult
-	err := r.callAI(ctx, func(ctx context.Context) error {
-		var callErr error
-		draft, callErr = r.agent.DraftDoorPitch(ctx, DraftRequest{
-			Brand:    req.Brand,
-			Door:     door,
-			Finding:  finding,
-			City:     req.City,
-			Mode:     run.Mode,
-			MaxWords: 220,
-			// The run's evidence set is the allow-set a cited id must belong
-			// to; an id outside it is dropped (PLAN.md §17).
-			EvidenceIDs: runEvidenceIDs(run, door),
-		})
-		return callErr
-	})
-	if err == nil && (draft.ErrorCode == "" || draft.ErrorCode == CodeUnspecified) && draft.Script != "" {
-		run.Pitches[door.Entity.ID] = Pitch{
-			Script:         draft.Script,
-			Battlecard:     draft.Battlecard,
-			RecommendedSKU: draft.RecommendedSKU,
-			ModeParagraph:  draft.ModeParagraph,
-			Opening:        draft.Opening,
-			WhyThisDoor:    draft.WhyThisDoor,
-			Pitch:          draft.Pitch,
-			ProductToLead:  draft.ProductToLead,
-			Ask:            draft.Ask,
-			Close:          draft.Close,
-			Sources:        draft.Sources,
-			ModelID:        draft.ModelID,
-			PromptVersion:  draft.PromptVersion,
-			EvidenceIDs:    draft.EvidenceIDs,
-		}
-		r.trace(run, StageDraft, started, draftDetail(door, draft), false)
-		return
-	}
-
-	*degraded = true
-	message := "draft unavailable"
-	if err != nil {
-		message = err.Error()
-	} else if draft.ErrorMessage != "" {
-		message = draft.ErrorMessage
-	}
-	run.Warnings = append(run.Warnings, fmt.Sprintf("draft for %s: %s", door.Entity.Name, message))
-	run.Pitches[door.Entity.ID] = templatePitch(door, finding, req.Brand, run.Mode)
-	r.trace(run, StageDraft, started, "template: "+door.Entity.Name, false)
-}
-
 // draftDetail names the door and the model that wrote the pitch, so the
 // timeline records which model produced the text (PLAN.md §3).
 func draftDetail(door Door, draft DraftResult) string {
@@ -493,67 +414,6 @@ func draftDetail(door Door, draft DraftResult) string {
 		return door.Entity.Name
 	}
 	return door.Entity.Name + " (" + draft.ModelID + ")"
-}
-
-// templatePitch builds a usable pitch from evidence fields only, so a degraded
-// run never invents a number (PLAN.md §18).
-func templatePitch(door Door, finding AuditFinding, brand BrandContext, mode Mode) Pitch {
-	evidenceID := ""
-	if len(door.EvidenceIDs) > 0 {
-		evidenceID = door.EvidenceIDs[0]
-	}
-
-	brandName := brand.Name
-	if brandName == "" {
-		brandName = "the brand"
-	}
-	// A readable template: one line for the door, one line for the brand fit,
-	// one line for the tags the door shares with the brand (capped so the
-	// template never becomes a wall of text).
-	parts := []string{fmt.Sprintf("%s is on the returned shortlist for %s.", door.Entity.Name, brandName)}
-	if len(door.SharedTags) > 0 {
-		labels := make([]string, 0, len(door.SharedTags))
-		for _, tag := range door.SharedTags {
-			if len(labels) >= 6 {
-				break
-			}
-			label := tag.Label
-			if label == "" {
-				label = tag.URN
-			}
-			labels = append(labels, label)
-		}
-		parts = append(parts, "Shared taste tags: "+strings.Join(labels, ", ")+".")
-	}
-
-	pitch := Pitch{
-		Script:         strings.Join(parts, " "),
-		Opening:        parts[0],
-		Pitch:          strings.Join(parts[1:], " "),
-		RecommendedSKU: firstSKU(brand),
-		Template:       true,
-		Sources:        []Citation{},
-	}
-	if evidenceID != "" {
-		pitch.Sources = append(pitch.Sources, Citation{
-			EvidenceID: evidenceID,
-			Text:       "Ranking call: " + evidenceID,
-		})
-	}
-	if mode == ModeWholesale {
-		pitch.ModeParagraph = ""
-	}
-	if len(finding.Incumbents) > 0 {
-		incumbent := finding.Incumbents[0].Name
-		pitch.Battlecard = &Battlecard{
-			Headline:      "Displace " + incumbent,
-			IncumbentName: incumbent,
-			TalkingPoints: []string{
-				fmt.Sprintf("%s is already on the shelf.", incumbent),
-			},
-		}
-	}
-	return pitch
 }
 
 // auditTargets caps the audit at the working shortlist. The Qloo names travel

@@ -205,6 +205,7 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 				// unowned preset record and let any visitor see the judge's
 				// prior runs through the shared cmp-* ids (PLAN.md §49).
 				mem.LinkPresets(presets.JudgeAccountID, ids)
+				seedJudgeBrand(ctx, sql)
 				slog.Info("judge account ready", "email", cfg.JudgeEmail, "campaigns", len(ids))
 			}
 		}
@@ -231,7 +232,7 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 	if cfg.RoutesAPIKey != "" {
 		runner.WithRoutes(routes.Client{
 			Key:  cfg.RoutesAPIKey,
-			HTTP: &http.Client{Timeout: 20 * time.Second},
+			HTTP: routes.NewHTTPClient(20 * time.Second),
 		})
 	}
 
@@ -264,6 +265,7 @@ func buildDeps(cfg *config.Config) runtimeDeps {
 			Store:    mem,
 			Geocoder: geocoder,
 			Auth:     authService,
+			Brands:   brandStore(sql),
 			Idem:     idempotency,
 			Async:    true,
 			Probes: httpapi.Probes{
@@ -320,5 +322,51 @@ func httpModeProbe(url string) func(context.Context) string {
 			return "degraded"
 		}
 		return body.Mode
+	}
+}
+
+// brandStore returns the Postgres brand profiles, or nil so the handler uses
+// its in-process map. A nil *persist.Store must not become a non-nil
+// interface value.
+func brandStore(sql *persist.Store) httpapi.BrandStore {
+	if sql == nil {
+		return nil
+	}
+	return sql
+}
+
+// judgeBrand is the demo brand the judge account pitches with until the
+// judge edits it on the account screen. It carries no figures: the pitch
+// writer drops any sentence with a number it cannot cite.
+var judgeBrand = orchestrator.BrandContext{
+	Name:     "Bloom Soda Co.",
+	Category: "Craft soft drinks",
+	Description: "Small-batch sparkling sodas made with real fruit, botanicals and cane sugar, " +
+		"with no artificial flavours or colours. Sold in glass bottles for the fridge and on " +
+		"draft for bars that pour it as a mixer.",
+	Positioning: "A grown-up non-alcoholic option and a better cocktail mixer: less sweet than " +
+		"mainstream colas, with distinctive flavours that let a venue charge more for alcohol-free " +
+		"drinks and give sober-curious guests a reason to order a second round.",
+	Audience: "Health-conscious adults, sober-curious drinkers, designated drivers, and cocktail " +
+		"bars and restaurants that want a premium mixer and an alcohol-free menu that sells.",
+	SKUs: []orchestrator.SKU{
+		{ID: "bloom-yuzu-ginger", Name: "Yuzu Ginger Sparkling"},
+		{ID: "bloom-blood-orange", Name: "Blood Orange and Hibiscus"},
+		{ID: "bloom-smoked-cola", Name: "Smoked Cola"},
+		{ID: "bloom-cucumber-tonic", Name: "Cucumber Mint Tonic"},
+	},
+}
+
+// seedJudgeBrand gives the judge a brand profile once. An existing profile,
+// including one the judge edited, is left alone.
+func seedJudgeBrand(ctx context.Context, sql *persist.Store) {
+	if _, found, err := sql.BrandProfile(ctx, presets.JudgeAccountID); err != nil || found {
+		if err != nil {
+			slog.Warn("judge brand profile could not be read", "error", err)
+		}
+		return
+	}
+	if err := sql.PutBrandProfile(ctx, presets.JudgeAccountID, judgeBrand); err != nil {
+		slog.Warn("judge brand profile could not be seeded", "error", err)
 	}
 }

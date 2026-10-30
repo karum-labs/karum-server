@@ -66,7 +66,7 @@ func (h *Handler) postPrewarm(c *gin.Context) {
 	for _, preset := range catalog {
 		result := prewarmPreset{Preset: preset.ID, CampaignID: presets.CampaignID(preset.ID)}
 		if !refresh {
-			if stored, found := h.store.NewestReady(preset.ID); found {
+			if stored, found := h.store.NewestReady(preset.ID, account.ID); found {
 				result.JobID = stored.ID
 				result.CampaignID = stored.CampaignID
 				result.State = string(stored.State)

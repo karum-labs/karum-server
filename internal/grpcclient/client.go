@@ -264,12 +264,19 @@ func (c *Clients) AuditMenu(ctx context.Context, req orchestrator.AuditRequest) 
 // DraftDoorPitch implements the draft half of orchestrator.AgentClient.
 func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequest) (orchestrator.DraftResult, error) {
 	resp, err := c.agent.DraftDoorPitch(ctx, &agentv1.DraftDoorPitchRequest{
-		Mode:     campaignMode(req.Mode),
-		City:     req.City,
-		MaxWords: int32(req.MaxWords),
+		Mode:           campaignMode(req.Mode),
+		City:           req.City,
+		MaxWords:       int32(req.MaxWords),
+		Instructions:   req.Instructions,
+		AttachmentId:   req.AttachmentID,
+		AttachmentName: req.AttachmentName,
 		Brand: &agentv1.BrandContext{
-			Name: req.Brand.Name,
-			Skus: skus(req.Brand.SKUs),
+			Name:        req.Brand.Name,
+			Skus:        skus(req.Brand.SKUs),
+			Category:    req.Brand.Category,
+			Description: req.Brand.Description,
+			Positioning: req.Brand.Positioning,
+			Audience:    req.Brand.Audience,
 		},
 		Door: doorContext(req),
 		// The run's evidence set is the allow-set a cited id must belong to.
@@ -282,6 +289,12 @@ func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequ
 	}
 	out := orchestrator.DraftResult{
 		Script:         resp.GetScript(),
+		Opening:        resp.GetOpening(),
+		WhyThisDoor:    resp.GetWhyThisDoor(),
+		Pitch:          resp.GetPitch(),
+		ProductToLead:  resp.GetProductToLead(),
+		Ask:            resp.GetAsk(),
+		Close:          resp.GetClose(),
 		ModeParagraph:  resp.GetModeParagraph(),
 		RecommendedSKU: orchestrator.SKU{ID: resp.GetRecommendedSku().GetId(), Name: resp.GetRecommendedSku().GetName()},
 		ModelID:        resp.GetAttribution().GetModelId(),
@@ -289,6 +302,9 @@ func (c *Clients) DraftDoorPitch(ctx context.Context, req orchestrator.DraftRequ
 		EvidenceIDs:    append([]string(nil), resp.GetAttribution().GetEvidenceIds()...),
 		ErrorCode:      codeName(resp.GetErrorCode()),
 		ErrorMessage:   resp.GetErrorMessage(),
+	}
+	for _, source := range resp.GetSources() {
+		out.Sources = append(out.Sources, orchestrator.Citation{EvidenceID: source.GetEvidenceId(), Text: source.GetText()})
 	}
 	if card := resp.GetBattlecard(); card != nil {
 		out.Battlecard = &orchestrator.Battlecard{

@@ -3,9 +3,6 @@ package orchestrator
 import (
 	"context"
 	"errors"
-	"fmt"
-	"regexp"
-	"strings"
 	"testing"
 )
 
@@ -119,8 +116,12 @@ func TestDraftsReceiveTheRunsEvidenceSetAsTheAllowSet(t *testing.T) {
 	taste, agent := healthyTaste(), healthyAgent()
 	runner := NewRunner(taste, agent, NewStore())
 
-	if _, err := runner.Run(context.Background(), testRequest(false)); err != nil {
+	run, err := runner.Run(context.Background(), testRequest(false))
+	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
+	}
+	if _, err := runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil, "", "", "", nil); err != nil {
+		t.Fatalf("RegenerateDoor: %v", err)
 	}
 	if len(agent.draftCalls) == 0 {
 		t.Fatal("no draft was requested")
@@ -190,21 +191,16 @@ func TestRunReadyStoresBaselineAndPitches(t *testing.T) {
 	if len(run.Doors) != 2 || len(run.Skip) != 1 {
 		t.Fatalf("doors/skips = %d/%d, want 2/1", len(run.Doors), len(run.Skip))
 	}
-	if len(run.Pitches) != 2 {
-		t.Fatalf("pitches = %d, want 2", len(run.Pitches))
-	}
-	if run.Pitches["d-1"].Template {
-		t.Fatal("a healthy draft must not be a template")
-	}
-	if run.Pitches["d-1"].RecommendedSKU.ID != "sk-espadin" {
-		t.Fatalf("SKU = %q, want sk-espadin", run.Pitches["d-1"].RecommendedSKU.ID)
+	// A run never drafts pitches; they are generated per door on demand.
+	if len(run.Pitches) != 0 || len(agent.draftCalls) != 0 {
+		t.Fatalf("pitches/draft calls = %d/%d, want 0/0", len(run.Pitches), len(agent.draftCalls))
 	}
 	// The trace covers every hop the client timeline renders.
 	stages := map[Stage]bool{}
 	for _, event := range run.Trace {
 		stages[event.Stage] = true
 	}
-	for _, want := range []Stage{StageBaseline, StageScout, StageAudit, StageDraft} {
+	for _, want := range []Stage{StageBaseline, StageScout, StageAudit} {
 		if !stages[want] {
 			t.Errorf("trace missing stage %q", want)
 		}
@@ -230,10 +226,8 @@ func TestRunKeepsDoorsWhenVertexIsDown(t *testing.T) {
 	if len(run.Doors) != 2 || len(run.Skip) != 1 {
 		t.Fatalf("taste ranking was dropped: doors=%d skips=%d", len(run.Doors), len(run.Skip))
 	}
-	for id, pitch := range run.Pitches {
-		if !pitch.Template {
-			t.Errorf("pitch %q is not a template", id)
-		}
+	if len(run.Pitches) != 0 {
+		t.Errorf("a failed draft must leave no pitch, got %d", len(run.Pitches))
 	}
 	if !run.BaselineStored {
 		t.Fatal("a failed baseline must still be recorded beside the run")
@@ -294,41 +288,6 @@ func TestAuditIsCappedToTheWorkingShortlist(t *testing.T) {
 	}
 }
 
-func TestDraftingIsCappedToTheAuditedShortlist(t *testing.T) {
-	taste := healthyTaste()
-	doors := make([]Door, 0, workingShortlist+2)
-	for i := 1; i <= workingShortlist+2; i++ {
-		doors = append(doors, testDoor(fmt.Sprintf("d-%d", i), fmt.Sprintf("Door %d", i), i))
-	}
-	taste.result.Doors = doors
-	agent := healthyAgent()
-	runner := NewRunner(taste, agent, NewStore())
-
-	run, err := runner.Run(context.Background(), testRequest(false))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if len(run.Doors) != len(doors) {
-		t.Fatalf("doors = %d, want %d", len(run.Doors), len(doors))
-	}
-	if got := len(agent.draftCalls); got != workingShortlist {
-		t.Fatalf("draft calls = %d, want the audited shortlist (%d)", got, workingShortlist)
-	}
-	if len(run.Pitches) != workingShortlist {
-		t.Fatalf("stored pitches = %d, want %d", len(run.Pitches), workingShortlist)
-	}
-	found := false
-	for _, warning := range run.Warnings {
-		if strings.Contains(warning, "capped to the audited shortlist") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("the draft cap was not surfaced in the warnings: %v", run.Warnings)
-	}
-}
-
 func TestRegenerateDoorCallsOnlyTheDraft(t *testing.T) {
 	taste, agent := healthyTaste(), healthyAgent()
 	runner := NewRunner(taste, agent, NewStore())
@@ -342,7 +301,7 @@ func TestRegenerateDoorCallsOnlyTheDraft(t *testing.T) {
 	draftCalls := len(agent.draftCalls)
 
 	agent.draftResult.Script = "Regenerated script (ev-0001)."
-	updated, err := runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil, "", "", "")
+	updated, err := runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("RegenerateDoor: %v", err)
 	}
@@ -371,7 +330,7 @@ func TestRegenerateFailureKeepsThePreviousPitch(t *testing.T) {
 	before := run.Pitches["d-1"].Script
 
 	agent.draftErr = upstream("Vertex went away")
-	_, err = runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil, "", "", "")
+	_, err = runner.RegenerateDoor(context.Background(), run.ID, "d-1", nil, "", "", "", nil)
 	if err == nil {
 		t.Fatal("expected a typed error")
 	}
@@ -380,35 +339,6 @@ func TestRegenerateFailureKeepsThePreviousPitch(t *testing.T) {
 	}
 	if run.Pitches["d-1"].Script != before {
 		t.Fatal("a failed regenerate replaced the previous pitch")
-	}
-}
-
-func TestTemplatePitchCitesOnlyEvidenceNumbers(t *testing.T) {
-	door := testDoor("d-1", "Whisler's", 1)
-	finding := AuditFinding{
-		Door:       door.Entity,
-		Incumbents: []Incumbent{{Name: "Del Maguey"}},
-	}
-	pitch := templatePitch(door, finding, BrandContext{Name: "Ilegal Mezcal"}, ModeWholesale)
-
-	if !pitch.Template {
-		t.Fatal("template pitch must be marked as such")
-	}
-	// Stored prose is citation-free: no ev- tokens and no uncited digits.
-	citations := regexp.MustCompile(`ev-\d{4}`)
-	stripped := citations.ReplaceAllString(pitch.Script, "")
-	if regexp.MustCompile(`\d`).MatchString(stripped) {
-		t.Fatalf("template has an uncited number: %q", pitch.Script)
-	}
-	if citations.MatchString(pitch.Script) {
-		t.Fatalf("template script still carries an inline id: %q", pitch.Script)
-	}
-	// The citation lives in Sources instead.
-	if len(pitch.Sources) != 1 || pitch.Sources[0].EvidenceID != "ev-0001" {
-		t.Fatalf("template sources missing the evidence citation: %+v", pitch.Sources)
-	}
-	if pitch.Battlecard == nil || pitch.Battlecard.IncumbentName != "Del Maguey" {
-		t.Fatal("template battlecard missing the sourced incumbent")
 	}
 }
 

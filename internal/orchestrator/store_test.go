@@ -12,7 +12,7 @@ func TestNewestReadyUsesCreationTime(t *testing.T) {
 	store.Put(&Run{ID: "run-0002", PresetID: "austin-wholesale", State: StateReady, CreatedAt: earlier})
 	store.Put(&Run{ID: "run-0001", PresetID: "austin-wholesale", State: StateReady, CreatedAt: later})
 
-	got, ok := store.NewestReady("austin-wholesale")
+	got, ok := store.NewestReady("austin-wholesale", "")
 	if !ok {
 		t.Fatal("NewestReady() found no run")
 	}
@@ -29,7 +29,7 @@ func TestNewestReadyBreaksTimestampTiesByNumericRunID(t *testing.T) {
 	store.Put(&Run{ID: "run-0009", PresetID: "brooklyn-flagship", State: StateReady, CreatedAt: sameTick})
 	store.Put(&Run{ID: "run-0010", PresetID: "brooklyn-flagship", State: StateReady, CreatedAt: sameTick})
 
-	got, ok := store.NewestReady("brooklyn-flagship")
+	got, ok := store.NewestReady("brooklyn-flagship", "")
 	if !ok {
 		t.Fatal("NewestReady() found no run")
 	}
@@ -45,7 +45,7 @@ func TestNewestReadyPrefersReadyOverANewerDegradedRun(t *testing.T) {
 	store.Put(&Run{ID: "run-0001", PresetID: "austin-wholesale", State: StateReady, CreatedAt: readyAt})
 	store.Put(&Run{ID: "run-0002", PresetID: "austin-wholesale", State: StateDegraded, CreatedAt: degradedAt})
 
-	got, ok := store.NewestReady("austin-wholesale")
+	got, ok := store.NewestReady("austin-wholesale", "")
 	if !ok {
 		t.Fatal("NewestReady() found no run")
 	}
@@ -60,7 +60,7 @@ func TestNewestReadyFallsBackToDegradedWhenNoReadyRunExists(t *testing.T) {
 	store.Put(&Run{ID: "run-0001", PresetID: "austin-wholesale", State: StateDegraded, CreatedAt: earlier})
 	store.Put(&Run{ID: "run-0002", PresetID: "austin-wholesale", State: StateDegraded, CreatedAt: earlier.Add(time.Second)})
 
-	got, ok := store.NewestReady("austin-wholesale")
+	got, ok := store.NewestReady("austin-wholesale", "")
 	if !ok {
 		t.Fatal("NewestReady() found no degraded run")
 	}
@@ -75,7 +75,7 @@ func TestNewestReadyIgnoresNonTerminalAndFreeEntryRuns(t *testing.T) {
 	store.Put(&Run{ID: "run-0001", PresetID: "mumbai-colaba-wholesale", State: StateRunning, CreatedAt: now})
 	store.Put(&Run{ID: "run-0002", PresetID: "mumbai-colaba-wholesale", State: StateReady, CreatedAt: now, FreeEntry: true})
 
-	if got, ok := store.NewestReady("mumbai-colaba-wholesale"); ok {
+	if got, ok := store.NewestReady("mumbai-colaba-wholesale", ""); ok {
 		t.Fatalf("NewestReady() = %s, want no preset run", got.ID)
 	}
 }
@@ -96,5 +96,23 @@ func TestReservedSequencesContinueAfterHydrate(t *testing.T) {
 	store.ReserveRunSeq(2)
 	if got := store.NextID(); got != "run-0014" {
 		t.Fatalf("NextID() after lower reserve = %s, want run-0014", got)
+	}
+}
+
+func TestNewestForCampaignKeepsTheLastFinishedRun(t *testing.T) {
+	store := NewStore()
+	base := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+	store.Put(&Run{ID: "run-0001", CampaignID: "cmp-austin", State: StateDegraded, CreatedAt: base})
+	store.Put(&Run{ID: "run-0002", CampaignID: "cmp-austin", State: StateFailed, CreatedAt: base.Add(time.Minute)})
+	store.Put(&Run{ID: "run-0003", CampaignID: "cmp-austin", State: StateRunning, CreatedAt: base.Add(2 * time.Minute)})
+
+	got, ok := store.NewestForCampaign("cmp-austin")
+	if !ok || got.ID != "run-0001" {
+		t.Fatalf("NewestForCampaign() = %v, want the finished run-0001", got)
+	}
+
+	store.Put(&Run{ID: "run-0004", CampaignID: "cmp-new", State: StateFailed, CreatedAt: base})
+	if got, ok := store.NewestForCampaign("cmp-new"); !ok || got.ID != "run-0004" {
+		t.Fatal("a campaign with no finished run should still open its newest run")
 	}
 }

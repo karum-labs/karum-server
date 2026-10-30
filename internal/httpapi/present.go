@@ -19,6 +19,7 @@ type jobResponse struct {
 type campaignResponse struct {
 	JobID            string         `json:"job_id"`
 	CampaignID       string         `json:"campaign_id,omitempty"`
+	PresetID         string         `json:"preset_id,omitempty"`
 	State            string         `json:"state"`
 	Mode             string         `json:"mode"`
 	City             string         `json:"city"`
@@ -161,7 +162,6 @@ type pitchBody struct {
 	SKU           skuBody     `json:"sku"`
 	Battlecard    *battleBody `json:"battlecard,omitempty"`
 	ModeParagraph string      `json:"mode_paragraph,omitempty"`
-	Template      bool        `json:"template"`
 	// Opening, WhyThisDoor, Pitch, ProductToLead, Ask, Close are the six
 	// citation-free sections of the pitch (PLAN.md §64).
 	Opening       string `json:"opening,omitempty"`
@@ -284,7 +284,7 @@ func jobOf(run *orchestrator.Run) jobResponse {
 
 func campaignOf(run *orchestrator.Run) campaignResponse {
 	out := campaignResponse{
-		JobID: run.ID, CampaignID: run.CampaignID, State: string(run.State),
+		JobID: run.ID, CampaignID: run.CampaignID, PresetID: run.PresetID, State: string(run.State),
 		Mode: string(run.Mode), City: run.City, RadiusMeters: run.RadiusMeters,
 		PointAttribution: run.PointAttribution, Formula: run.Formula,
 		Brand: brandBody{Name: run.Brand.Name},
@@ -497,9 +497,9 @@ func doorOf(door orchestrator.Door, pitch orchestrator.Pitch, finding orchestrat
 		}
 		body.Menu = menu
 	}
-	if pitch.Script != "" || pitch.Template {
+	if pitch.Script != "" {
 		item := &pitchBody{
-			Script: pitch.Script, Template: pitch.Template, ModeParagraph: pitch.ModeParagraph,
+			Script: pitch.Script, ModeParagraph: pitch.ModeParagraph,
 			Opening: pitch.Opening, WhyThisDoor: pitch.WhyThisDoor, Pitch: pitch.Pitch,
 			ProductToLead: pitch.ProductToLead, Ask: pitch.Ask, Close: pitch.Close,
 			SKU: skuBody{ID: pitch.RecommendedSKU.ID, Name: pitch.RecommendedSKU.Name},

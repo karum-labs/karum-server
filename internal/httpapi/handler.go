@@ -65,6 +65,8 @@ type Dependencies struct {
 	Idem     resilience.IdempotencyStore
 	Renderer Renderer
 	Auth     *auth.Service
+	// Brands keeps the account brand profiles. Nil uses an in-process map.
+	Brands   BrandStore
 	Probes   Probes
 	// Async starts the pipeline in the background and returns the job id
 	// immediately. Tests leave it false so GET sees a finished run.
@@ -88,6 +90,7 @@ type Handler struct {
 	idem          resilience.IdempotencyStore
 	renderer      Renderer
 	auth          *auth.Service
+	brands        BrandStore
 	probes        Probes
 	async         bool
 	cancels       cancelRegistry
@@ -96,6 +99,9 @@ type Handler struct {
 func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 	if deps.Catalog == nil {
 		deps.Catalog = presets.New()
+	}
+	if deps.Brands == nil {
+		deps.Brands = newMemBrandStore()
 	}
 	if deps.Idem == nil {
 		deps.Idem = resilience.NewIdempotency()
@@ -132,7 +138,7 @@ func newHandler(cfg *config.Config, deps Dependencies) *Handler {
 		loginLimiter: deps.LoginLimiter, regenLimiter: deps.RegenLimiter,
 		contactLimiter: deps.ContactLimiter,
 		placesLimiter: deps.PlacesLimiter, placesBase: deps.PlacesBaseURL,
-		idem: deps.Idem, renderer: deps.Renderer, auth: deps.Auth, probes: deps.Probes, async: deps.Async,
+		idem: deps.Idem, renderer: deps.Renderer, auth: deps.Auth, brands: deps.Brands, probes: deps.Probes, async: deps.Async,
 	}
 }
 

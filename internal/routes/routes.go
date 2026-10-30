@@ -11,12 +11,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
 
 // Attribution is the credit stored beside a Routes payload.
 const Attribution = "Map data © Google"
+
+// NewHTTPClient returns an HTTP client that dials IPv4 only. routes.googleapis.com
+// publishes AAAA records, and a host with a DNS answer but no IPv6 route (a
+// Docker bridge or a VM without v6 egress) fails every call with "network is
+// unreachable" instead of falling back.
+func NewHTTPClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport.DialContext = func(ctx context.Context, _, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "tcp4", addr)
+	}
+	return &http.Client{Timeout: timeout, Transport: transport}
+}
 
 // APIError is a non-2xx response from computeRoutes. The status and body are
 // carried so the caller can decide whether to retry (429 and 5xx are
@@ -166,7 +180,7 @@ func (c Client) compute(ctx context.Context, stops []Stop) (Plan, error) {
 	req.Header.Set("X-Goog-FieldMask", "routes.polyline.encodedPolyline,routes.optimizedIntermediateWaypointIndex,routes.legs,routes.warnings")
 	client := c.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 5 * time.Second}
+		client = NewHTTPClient(5 * time.Second)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

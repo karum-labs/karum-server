@@ -136,13 +136,15 @@ func (s *Store) Len() int {
 // or the newest degraded run when no ready run exists. A ready run is preferred
 // even when a newer degraded run was stored afterwards, because the preset path
 // exists to replay a complete demo run (PLAN.md §13 and §39). Free-entry runs
-// are not served on the preset path.
-func (s *Store) NewestReady(presetID string) (*Run, bool) {
+// are not served on the preset path. Only runs filed under accountID count
+// ("" is the anonymous visitor), so one caller never reads another account's
+// prior attempt (PLAN.md §49).
+func (s *Store) NewestReady(presetID, accountID string) (*Run, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var bestReady, bestDegraded *Run
 	for _, run := range s.runs {
-		if run.PresetID != presetID || run.FreeEntry {
+		if run.PresetID != presetID || run.FreeEntry || run.AccountID != accountID {
 			continue
 		}
 		switch run.State {
@@ -201,18 +203,31 @@ func trailingNumber(id string) (int, bool) {
 	return n, true
 }
 
-// NewestForCampaign returns the newest run of a campaign, ready or not.
+// NewestForCampaign returns the run a campaign opens on: its newest finished
+// run (ready or degraded). A re-run that is still going, failed, or was cut
+// off must not hide the last good result; it stays reachable by its job id.
+// The newest run of any state is the fallback when none has finished.
 func (s *Store) NewestForCampaign(campaignID string) (*Run, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var best *Run
+	var finished, any *Run
 	for _, run := range s.runs {
 		if run.CampaignID != campaignID {
 			continue
 		}
-		if best == nil || newerRun(run, best) {
-			best = run
+		if any == nil || newerRun(run, any) {
+			any = run
 		}
+		if run.State != StateReady && run.State != StateDegraded {
+			continue
+		}
+		if finished == nil || newerRun(run, finished) {
+			finished = run
+		}
+	}
+	best := finished
+	if best == nil {
+		best = any
 	}
 	if best == nil {
 		return nil, false

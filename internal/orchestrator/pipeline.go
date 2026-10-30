@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -469,6 +470,35 @@ func (r *Runner) routeDoors(ctx context.Context, run *Run) {
 		detail = fmt.Sprintf("%d stops", len(plan.StopIDs))
 	}
 	r.trace(run, StageRoute, started, detail, false)
+}
+
+// RefreshRoute recomputes a stored run's field route when the saved one
+// failed, so a transient or since-fixed Routes failure (no model call, one
+// Google Routes request) does not stay on a replayed run forever. It tries
+// each run once per process and reports whether the route changed.
+func (r *Runner) RefreshRoute(ctx context.Context, run *Run) bool {
+	if r == nil || r.routes == nil || run == nil || run.Route == nil || !run.Route.Failed {
+		return false
+	}
+	if run.State != StateReady && run.State != StateDegraded {
+		return false
+	}
+	if _, tried := r.routeRetried.LoadOrStore(run.ID, true); tried {
+		return false
+	}
+	r.routeDoors(ctx, run)
+	if run.Route != nil && run.Route.Failed {
+		return true
+	}
+	kept := run.Warnings[:0]
+	for _, warning := range run.Warnings {
+		if !strings.HasPrefix(warning, "route unavailable") {
+			kept = append(kept, warning)
+		}
+	}
+	run.Warnings = kept
+	r.store.Put(run)
+	return true
 }
 
 func firstNonEmpty(values ...string) string {

@@ -109,6 +109,12 @@ func (s *Store) hydrate(ctx context.Context) error {
 		if err := json.Unmarshal(payload, &run); err != nil {
 			return err
 		}
+		// A run still marked running was cut off by a restart: no process is
+		// driving it any more, so it would poll as "running" forever.
+		if run.State == orchestrator.StateRunning || run.State == orchestrator.StateResolving {
+			run.State = orchestrator.StateFailed
+			run.ErrorMessage = "the gateway restarted before this run finished; run it again"
+		}
 		s.mem.Put(&run)
 		if n, ok := numericSuffix(id, "run-"); ok && n > runSeq {
 			runSeq = n

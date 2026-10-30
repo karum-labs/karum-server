@@ -63,11 +63,13 @@ func (h *Handler) postScout(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "validation", err.Error())
 		return
 	}
-	// The preset-replay shortcut returns a stored run keyed by preset id.
-	// For a preset campaign that belongs to an account (the judge's four),
-	// only serve the replay to that owner — an anonymous visitor would
-	// otherwise read the judge's prior attempt (PLAN.md §49). An owner-less
-	// preset (test harness, local dev before judge seeding) keeps replaying.
+	// The preset-replay shortcut returns the caller's own newest stored run
+	// for the preset, so reopening a preset never re-runs the pipeline or
+	// calls a model. Runs are matched by account, so a visitor never reads
+	// the judge's prior attempt (PLAN.md §49). Anonymous visitors are not one
+	// person, so they only share a replay for an owner-less preset; the
+	// client remembers an anonymous visitor's own run and reopens it by job
+	// id instead. Rerun skips the shortcut and starts a fresh run.
 	callerAccountID := ""
 	if account, ok := auth.Current(c); ok {
 		callerAccountID = account.ID
@@ -78,9 +80,9 @@ func (h *Handler) postScout(c *gin.Context) {
 			presetOwnerID = record.AccountID
 		}
 	}
-	presetReplayAllowed := presetOwnerID == "" || presetOwnerID == callerAccountID
-	if hasPreset && !req.FreeEntry && !req.Rerun && presetReplayAllowed {
-		if stored, ok := h.store.NewestReady(req.PresetID); ok {
+	replayAllowed := callerAccountID != "" || presetOwnerID == ""
+	if hasPreset && !req.FreeEntry && !req.Rerun && replayAllowed {
+		if stored, ok := h.store.NewestReady(req.PresetID, callerAccountID); ok {
 			if won, err := h.idem.Remember(c.Request.Context(), key, resilience.Idempotent{Hash: hash, JobID: stored.ID}); err == nil && !won {
 				if prev, ok, err := h.idem.Lookup(c.Request.Context(), key); err == nil && ok {
 					h.writeExisting(c, prev.JobID)
@@ -243,6 +245,19 @@ func candidateBodies(cands []geocode.Candidate) []gin.H {
 	return out
 }
 
+// refreshRoute retries a failed saved route before the run is served.
+func (h *Handler) refreshRoute(c *gin.Context, run *orchestrator.Run) *orchestrator.Run {
+	if run == nil || run.Route == nil || !run.Route.Failed || h.live == nil {
+		return run
+	}
+	if h.live.RefreshRoute(c.Request.Context(), run) {
+		if fresh, ok := h.store.Get(run.ID); ok {
+			return fresh
+		}
+	}
+	return run
+}
+
 func (h *Handler) getScout(c *gin.Context) {
 	run, ok := h.store.Get(c.Param("id"))
 	if !ok {
@@ -253,7 +268,7 @@ func (h *Handler) getScout(c *gin.Context) {
 		c.JSON(http.StatusOK, jobOf(run))
 		return
 	}
-	c.JSON(http.StatusOK, campaignOf(run))
+	c.JSON(http.StatusOK, campaignOf(h.refreshRoute(c, run)))
 }
 
 func (h *Handler) getCampaign(c *gin.Context) {
@@ -279,7 +294,7 @@ func (h *Handler) getCampaign(c *gin.Context) {
 		writeError(c, http.StatusNotFound, "not_found", "no run for this campaign")
 		return
 	}
-	c.JSON(http.StatusOK, campaignOf(run))
+	c.JSON(http.StatusOK, campaignOf(h.refreshRoute(c, run)))
 }
 
 func (h *Handler) postRunSheet(c *gin.Context) {
@@ -419,7 +434,7 @@ func (h *Handler) postDoorPitch(c *gin.Context) {
 		writeError(c, http.StatusServiceUnavailable, "upstream", "no pipeline is configured")
 		return
 	}
-	run, err := runner.RegenerateDoor(c.Request.Context(), c.Param("id"), c.Param("doorID"), nil, instructions, attachmentID, attachmentName)
+	run, err := runner.RegenerateDoor(c.Request.Context(), c.Param("id"), c.Param("doorID"), nil, instructions, attachmentID, attachmentName, h.pitchBrand(c))
 	if err != nil {
 		if errors.Is(err, orchestrator.ErrRunNotFound) || errors.Is(err, orchestrator.ErrDoorNotFound) {
 			writeError(c, http.StatusNotFound, "not_found", err.Error())
@@ -451,7 +466,7 @@ func (h *Handler) postPitchExport(c *gin.Context) {
 		return
 	}
 	pitch := run.Pitches[doorID]
-	if pitch.Script == "" && !pitch.Template {
+	if pitch.Script == "" {
 		writeError(c, http.StatusBadRequest, "validation", "this door has no pitch to export")
 		return
 	}
@@ -640,7 +655,7 @@ func (h *Handler) postContact(c *gin.Context) {
 		return
 	}
 	pitch := run.Pitches[doorID]
-	if pitch.Script == "" && !pitch.Template {
+	if pitch.Script == "" {
 		writeError(c, http.StatusBadRequest, "validation", "this door has no pitch to send")
 		return
 	}
