@@ -482,7 +482,7 @@ func (h *Handler) postPitchExport(c *gin.Context) {
 		writeError(c, http.StatusBadGateway, "upstream", "the pdf could not be rendered; the campaign is unchanged")
 		return
 	}
-	name := fmt.Sprintf("pitch-%s.pdf", strings.ToLower(strings.ReplaceAll(door.Entity.Name, " ", "-")))
+	name := fmt.Sprintf("pitch-%s-%s.pdf", strings.ToLower(strings.ReplaceAll(door.Entity.Name, " ", "-")), time.Now().UTC().Format("2006-01-02"))
 	c.Header("Content-Disposition", "attachment; filename="+name)
 	c.Data(http.StatusOK, "application/pdf", raw)
 }

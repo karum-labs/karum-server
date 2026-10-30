@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"mime"
+	"path/filepath"
 	"strings"
 )
 
@@ -66,11 +67,7 @@ func asData(value string) string {
 }
 
 func pathExt(filename string) string {
-	_, after, _ := strings.Cut(filename, ".")
-	if after == "" {
-		return ""
-	}
-	return "." + after
+	return filepath.Ext(filename)
 }
 
 // attachmentError is a typed validation failure for an uploaded file.
